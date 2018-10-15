@@ -1,16 +1,52 @@
 <!DOCTYPE html>
 <html>
 <head>
-    <style>
-        button {
-            height: 30px;
-            width: 100px;
-            outline: none;
-        }
-    </style>
+    
+    <link rel="stylesheet" href="https://maxcdn.bootstrapcdn.com/bootstrap/4.0.0/css/bootstrap.min.css" integrity="sha384-Gn5384xqQ1aoWXA+058RXPxPg6fy4IWvTNh0E263XmFcJlSAwiGgFAW/dAiS6JXm" crossorigin="anonymous">
+
+    <script src="https://www.gstatic.com/firebasejs/5.5.3/firebase.js"></script>
 </head>
 <body>
-<button id="asinButton">CLICK</button>
+<div style="width:400px; min-height:300px;">
+    <div id="main">
+        <div class="container-fluid py-4">
+            <h2>Kidada Product Picker</h2>
+            <div class="form-group">
+                <label for="title">Product Name</label>
+                <input type="text" name="title" class="form-control" id="title" />
+            </div>
+            <div class="form-group">
+                <label for="brand">Brand</label>
+                <input type="text" name="brand" class="form-control" id="brand" />
+            </div>
+            <div class="form-group">
+                <label>Price</label>
+                <input type="text" name="price" class="form-control" id="price" />
+            </div>
+            <div class="form-group">
+                <label>Code</label>
+                <input type="text" name="code" class="form-control" id="code" />
+            </div>
+            <div class="form-group">
+                <label>Amazon Link</label>
+                <input type="text" name="amazonLink" class="form-control" id="amazonLink" />
+            </div>
+            <strong>Amazon Country</strong><br/>
+            <div id="amazonCountry"></div><br/>
+            <strong>Image</strong><br/>
+            <img id="imageObject" src="" style="width:50px; height:auto;"/>
+            <div id="image"></div><br/>
+            
+            <button class="btn btn-primary" id="addToKidada">Add to Kidada</button>
+        </div>
+    </div>
+    <div id="result" style="display:none;">
+        <div class="d-flex align-items-center justify-content-center" style="height:300px">
+            <div id="result-text" class="p-5"></div>
+        </div>
+    </div>
+</div>
+<script src="jquery.js"></script>
 <script src="popup.js"></script>
 </body>
 </html>
