@@ -7,9 +7,16 @@ var imageObject = document.getElementById('imageObject');
 var amazonLink = document.getElementById('amazonLink');
 var amazonCountry = document.getElementById('amazonCountry');
 var addToKidada = document.getElementById('addToKidada');
+var categoriesSelect = document.getElementById('categories');
+var logoutButton = document.getElementById('logout');
+//var loginGoogle = document.getElementById('loginGoogle');
+//var loginFacebook = document.getElementById('loginFacebook');
+var loginForm = document.getElementById('loginform');
 
 var productCode = null;
 var productCountry = null;
+
+var categories = null;
 
 
 
@@ -44,6 +51,7 @@ var ProductObject = {
 }
 
 
+
 chrome.tabs.query({active: true, currentWindow: true}, function (tabs) {
     let url = new URL(tabs[0].url);
     //need to optimise
@@ -61,8 +69,6 @@ chrome.tabs.query({active: true, currentWindow: true}, function (tabs) {
     let reg = /(dp|product)\/(.*)\//g;
     while (match = reg.exec(url)) {
         let asin = match[2];
-        console.log(match);
-        console.log(asin);
         productCode = asin;
         codeText.value = productCode;
     }
@@ -79,6 +85,19 @@ function cleanPrice(string){
 }
 
 chrome.runtime.onMessage.addListener(function(request, sender) {
+
+
+    firebase.firestore().collection('sites').doc(productCountry).collection('categories')
+    .orderBy('name', 'desc')
+    .get()
+    .then(snapshot => {
+      let categories = "";
+      snapshot.forEach((doc) => {
+        categories = categories + "<option value=\""+ doc.id +"\">"+ doc.data().name +"</option>"
+      });
+      categoriesSelect.innerHTML = categories;
+    })
+
     if (request.action == "getSource") {
         var page = $.parseHTML( request.source );
         ProductObject.name = $.trim($(page).find('#productTitle').text());
@@ -153,13 +172,61 @@ chrome.runtime.onMessage.addListener(function(request, sender) {
   
   function onWindowLoad() {
 
-    firebase.auth().signInWithEmailAndPassword('admin@camberi.com', 'pwd12345Aa!').then(function(user) {
+    var message = document.querySelector('#message');
+
+    $(loginForm).submit(function( event ) {
+      var username = $(this).find('#username').val();
+      var password = $(this).find('#password').val();
+      event.preventDefault();
+      firebase.auth().signInWithEmailAndPassword(username, password).then(function(user) {
         console.log('User connected', user);
       }).catch(function(error) {
-        console.error('Anonymous Sign In Error', error);
+        $('#error').removeClass("d-none");
+        $('#errorText').html(error.message);
       });
-  
-    var message = document.querySelector('#message');
+    });
+
+    firebase.auth().onAuthStateChanged(function(user) {
+      if (user) {
+        $('#main').removeClass("d-none");
+        $('#login').addClass("d-none");
+      } else {
+        $('#main').addClass("d-none");
+        $('#login').removeClass("d-none");
+      }
+    });
+    
+    
+
+    logoutButton.addEventListener("click",function(){
+      firebase.auth().signOut().then(function() {
+        // Sign-out successful.
+      }).catch(function(error) {
+        // An error happened.
+      });
+    });
+    
+    /*loginGoogle.addEventListener("click",function(){
+      var provider = new firebase.auth.GoogleAuthProvider();
+      firebase.auth().signInWithPopup(provider).then(function(result) {
+        // This gives you a Google Access Token. You can use it to access the Google API.
+        var token = result.credential.accessToken;
+        // The signed-in user info.
+        var user = result.user;
+        console.log(user);
+        // ...
+      }).catch(function(error) {
+        // Handle Errors here.
+        var errorCode = error.code;
+        var errorMessage = error.message;
+        // The email of the user's account used.
+        var email = error.email;
+        // The firebase.auth.AuthCredential type that was used.
+        var credential = error.credential;
+        console.log(error);
+        // ...
+      });
+    })*/
   
     chrome.tabs.executeScript(null, {
       file: "getPagesSource.js"
@@ -195,7 +262,6 @@ chrome.runtime.onMessage.addListener(function(request, sender) {
    
              if (this.status === 200) {
            // `blob` response
-           console.log(this.response);
            var reader = new FileReader();
            reader.onload = function(e) {
    
