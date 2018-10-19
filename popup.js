@@ -13,6 +13,34 @@ var logoutButton = document.getElementById('logout');
 //var loginFacebook = document.getElementById('loginFacebook');
 var loginForm = document.getElementById('loginform');
 
+var countryInfo = {
+  "es_ES": {
+    "currency" : "EUR",
+    "amazon_link" : "https://www.amazon.es",
+    "name": "Spain"
+  },
+  "it_IT": {
+    "currency" : "EUR",
+    "amazon_link" : "https://www.amazon.it",
+    "name": "Italy"
+  },
+  "en_US": {
+    "currency" : "USD",
+    "amazon_link" : "https://www.amazon.com",
+    "name": "United States"
+  },
+  "de_DE": {
+    "currency" : "EUR",
+    "amazon_link" : "https://www.amazon.de",
+    "name": "Germany"
+  },
+  "en_GB": {
+    "currency" : "GBP",
+    "amazon_link" : "https://www.amazon.co.uk",
+    "name": "Germany"
+  }
+}
+
 var productCode = null;
 var productCountry = null;
 
@@ -45,6 +73,7 @@ var ProductObject = {
     image: null,
     last_featured: null,
     liked_by_count: 0,
+    categories: null,
     name: null,
     price: null,
     currency: null
@@ -111,56 +140,30 @@ chrome.runtime.onMessage.addListener(function(request, sender) {
         imageObject.src = ProductObject.image;
 
         //need to optimise
-        if (productCountry === "es_ES"){
-            ProductObject.amazon_link = "https://amazon.es/gp/product/"+productCode
-            ProductObject.currency = "EUR";
-            amazonLink.value = ProductObject.amazon_link
-            amazonCountry.innerText = "Spain";
-        }else if (productCountry === "de_DE"){
-            ProductObject.amazon_link = "https://amazon.de/gp/product/"+productCode
-            ProductObject.currency = "EUR";
-            amazonLink.value = ProductObject.amazon_link
-            amazonCountry.innerText = "Germany";
-        }else if (productCountry === "it_IT"){
-            ProductObject.amazon_link = "https://amazon.it/gp/product/"+productCode
-            ProductObject.currency = "EUR";
-            amazonLink.value = ProductObject.amazon_link
-            amazonCountry.innerText = "Italy";
-        }else if (productCountry === "en_GB"){
-            ProductObject.amazon_link = "https://amazon.co.uk/gp/product/"+productCode
-            ProductObject.currency = "GBP";
-            amazonLink.value = ProductObject.amazon_link
-            amazonCountry.innerText = "United Kingdom";
-        }else if (productCountry === "en_US"){
-            ProductObject.amazon_link = "https://amazon.com/gp/product/"+productCode
-            ProductObject.currency = "USD";
-            amazonLink.value = ProductObject.amazon_link
-            amazonCountry.innerText = "United States";
-        } 
+        ProductObject.amazon_link = countryInfo[productCountry].amazon_link + "/gp/product/"+productCode;
+        ProductObject.currency = countryInfo[productCountry].currency;
+        amazonLink.value = ProductObject.amazon_link;
+        amazonCountry.innerText = countryInfo[productCountry].name;
+       
 
         titleText.onkeyup = function() { ProductObject.name = this.value; }
         brandText.onkeyup = function() { ProductObject.brand = this.value; }
         priceText.onkeyup = function() { ProductObject.price = this.value; }
         codeText.onkeyup = function() { 
           productCode = this.value;  
-          if (productCountry === "es_ES"){
-              ProductObject.amazon_link = "https://amazon.es/gp/product/"+productCode
-              amazonLink.value = ProductObject.amazon_link
-          }else if (productCountry === "de_DE"){
-              ProductObject.amazon_link = "https://amazon.de/gp/product/"+productCode
-              amazonLink.value = ProductObject.amazon_link
-          }else if (productCountry === "it_IT"){
-              ProductObject.amazon_link = "https://amazon.it/gp/product/"+productCode
-              amazonLink.value = ProductObject.amazon_link
-          }else if (productCountry === "en_GB"){
-              ProductObject.amazon_link = "https://amazon.co.uk/gp/product/"+productCode
-              amazonLink.value = ProductObject.amazon_link
-          }else if (productCountry === "en_US"){
-              ProductObject.amazon_link = "https://amazon.com/gp/product/"+productCode
-              amazonLink.value = ProductObject.amazon_link
-          }
+          ProductObject.amazon_link = countryInfo[productCountry].amazon_link + "/gp/product/"+productCode;
+          amazonLink.value = ProductObject.amazon_link;
         }
         amazonLink.onkeyup = function() { ProductObject.amazon_link = this.value; }
+        categoriesSelect.onchange = function() { 
+          var options = this.selectedOptions;
+          var categories = []
+          for (var i = 0; i < options.length; i++) {
+              categories.push(options[i].value);
+              
+          }
+          
+          ProductObject.categories = categories; console.log(ProductObject); }
         addToKidada.onclick = function(){
             document.getElementById('main').style.display = 'none';
             document.getElementById('result').style.display = 'block';
