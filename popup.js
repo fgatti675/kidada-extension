@@ -9,8 +9,8 @@ var amazonCountry = document.getElementById('amazonCountry');
 var addToKidada = document.getElementById('addToKidada');
 var categoriesSelect = document.getElementById('categories');
 var logoutButton = document.getElementById('logout');
-//var loginGoogle = document.getElementById('loginGoogle');
-//var loginFacebook = document.getElementById('loginFacebook');
+var loginGoogle = document.getElementById('loginGoogle');
+var loginFacebook = document.getElementById('loginFacebook');
 var loginForm = document.getElementById('loginform');
 
 var countryInfo = {
@@ -209,7 +209,7 @@ chrome.runtime.onMessage.addListener(function(request, sender) {
       });
     });
     
-    /*loginGoogle.addEventListener("click",function(){
+    loginGoogle.addEventListener("click",function(){
       var provider = new firebase.auth.GoogleAuthProvider();
       firebase.auth().signInWithPopup(provider).then(function(result) {
         // This gives you a Google Access Token. You can use it to access the Google API.
@@ -229,7 +229,7 @@ chrome.runtime.onMessage.addListener(function(request, sender) {
         console.log(error);
         // ...
       });
-    })*/
+    })
   
     chrome.tabs.executeScript(null, {
       file: "getPagesSource.js"

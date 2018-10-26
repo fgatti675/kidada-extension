@@ -1,9 +1,9 @@
 {
   "name": "Kidada Product Picker",
-  "version": "0.2",
+  "version": "0.3",
   "description": "Select Amazon products and add it to the Kidada backend",
   "permissions": ["activeTab", "declarativeContent", "storage", "identity"],
-  "content_security_policy": "script-src 'self' https://cdn.firebase.com https://www.gstatic.com https://*.firebaseio.com; object-src 'self'",
+  "content_security_policy": "script-src 'self' https://cdn.firebase.com https://www.gstatic.com https://apis.google.com https://*.firebaseio.com; object-src 'self'",
   "background": {
     "scripts": ["background.js"],
     "persistent": true
