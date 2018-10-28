@@ -8,7 +8,7 @@ chrome.runtime.onInstalled.addListener(function () {
     chrome.storage.sync.set({color: '#3aa757'}, function () {
         console.log("The color is green.");
     });
-    // activate only in amazon pages
+    // activate only in amazon product pages
     chrome.declarativeContent.onPageChanged.removeRules(undefined, function () {
         chrome.declarativeContent.onPageChanged.addRules([
             {
