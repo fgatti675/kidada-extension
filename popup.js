@@ -1,6 +1,7 @@
 const asinText = document.getElementById('asin');
 const nameText = document.getElementById('name');
 const shortDescriptionText = document.getElementById('short_description');
+const editorsCommentText = document.getElementById('editors_comment');
 const brandText = document.getElementById('brand');
 const priceText = document.getElementById('price');
 const currencySelect = document.getElementById('currency');
@@ -15,6 +16,7 @@ const loginGoogle = document.getElementById('loginGoogle');
 const loginFacebook = document.getElementById('loginFacebook');
 const loginForm = document.getElementById('loginform');
 
+let invalidUrl = false;
 const countryInfo = {
     "es_ES": {
         "currency": "EUR",
@@ -43,7 +45,7 @@ const countryInfo = {
     }
 };
 
-let productCode = null;
+let productAsin = null;
 let productCountry = null;
 
 const categories = null;
@@ -68,16 +70,24 @@ const ProductObject = {
     added_on: firebase.firestore.FieldValue.serverTimestamp(),
     amazon_link: null,
     brand: null,
-    image: null,
+    images: [],
     last_featured: null,
     liked_by_count: 0,
-    categories: [],
+    category: null,
     name: null,
     short_description: null,
+    editors_comment: null,
     feed_excluded: false,
     price: null,
     currency: null
 };
+
+function setWrongPageMode() {
+    $('#main').addClass("d-none");
+    $('#login').addClass("d-none");
+    $('#loader').addClass("d-none");
+    $('#wrong_site').removeClass("d-none");
+}
 
 chrome.tabs.query({active: true, currentWindow: true}, function (tabs) {
     let url = new URL(tabs[0].url);
@@ -92,13 +102,22 @@ chrome.tabs.query({active: true, currentWindow: true}, function (tabs) {
         productCountry = "en_GB";
     } else if (url.host === "www.amazon.com") {
         productCountry = "en_US";
+    } else {
+        invalidUrl = true;
+        console.log("Wrong host");
+        setWrongPageMode();
+        return;
     }
-    // TODO: add site not supported mode
-    let reg = /(([0-9]|[A-Z])+)\//g;
+
+    let reg = /\/(([0-9]|[A-Z])+)(\/|\?|$)/g;
     while (match = reg.exec(url)) {
         let asin = match[1];
-        productCode = asin;
-        asinText.value = productCode;
+        productAsin = asin;
+    }
+
+    if (!productAsin) {
+        console.log("Wrong asin");
+        invalidUrl = true;
     }
 });
 
@@ -114,6 +133,9 @@ function getPrice(page) {
     let price = $.trim($(page).find('#priceblock_ourprice').text());
     if (!price) {
         price = $.trim($(page).find('#buyNewSection .a-color-price').text());
+        if (!price) {
+            price = $.trim($(page).find('.a-color-price').text());
+        }
     }
     let cleanedPrice = cleanPrice(price);
     return parseFloat(cleanedPrice);
@@ -134,27 +156,41 @@ function cleanPrice(string) {
 chrome.runtime.onMessage.addListener(function (request, sender) {
 
     firebase.firestore().collection('sites').doc(productCountry).collection('categories')
-        .orderBy('name', 'desc')
+        .orderBy('meta_category', 'desc')
         .get()
         .then(snapshot => {
-            let categories = "";
-            snapshot.forEach((doc) => {
-                categories = categories +
-                    "  <label class=\"checkbox-inline p-1\"><input type=\"checkbox\" class='mr-2' value=\"" + doc.id + "\">"+ doc.data().name + "</label>\n"
-
-            });
-            categoriesGroup.innerHTML = categories;
-            $(categoriesGroup).find("input").change(function(){
-                let value = this.value;
-                if(this.checked) {
-                    ProductObject.categories.push(value);
+            let categoriesHtml = "";
+            const metaCategories = new Map();
+            snapshot.forEach((item) => {
+                const key = item.data()['meta_category'];
+                const collection = metaCategories.get(key);
+                if (!collection) {
+                    metaCategories.set(key, [item]);
+                } else {
+                    collection.push(item);
                 }
-                else ProductObject.categories = ProductObject.categories.filter(function(item) {
-                    return item !== value
-                });
-                console.log(ProductObject.categories);
             });
-        });
+            metaCategories.forEach((values, key, map) => {
+                categoriesHtml = categoriesHtml + "<div class='p-1 w-25 '>";
+                categoriesHtml = categoriesHtml + "<div class='bg-light p-2'>";
+                categoriesHtml = categoriesHtml + "<div class=\"small\"><strong>" + key + "</strong></div>";
+                values.forEach((doc) => {
+                    categoriesHtml = categoriesHtml + "<label class=\"small mr-2\">"
+                        + "<input type=\"radio\" name=\"optradio\" class='mr-2' value=\"" + doc.id + "\">"
+                        + doc.data().name
+                        + "</label>";
+                });
+                categoriesHtml = categoriesHtml + "</div>";
+                categoriesHtml = categoriesHtml + "</div>";
+            });
+
+            categoriesGroup.innerHTML = categoriesHtml;
+            $(categoriesGroup).find("input").change(function () {
+                let value = this.value;
+                ProductObject.category = value;
+                console.log(ProductObject);
+            });
+        }).catch((reason) => showError(reason));
 
     if (request.action === "getSource") {
         const page = $.parseHTML(request.source);
@@ -162,32 +198,58 @@ chrome.runtime.onMessage.addListener(function (request, sender) {
         let brand = getBrand(page);
         ProductObject.brand = brand;
 
-        let name = $.trim($(page).find('#productTitle').text().replace(brand, ""));
+        let name = $(page).find('#productTitle').text().replace(brand, "").trim();
+        console.log(name);
+        console.log(name.startsWith("– "));
+        if (name.startsWith("- ") || name.startsWith("\u8211") || name.startsWith("\u2013")) // –
+            name = name.substring(2, name.length);
+
+        // check if one of this strings is there to separate
         let separatorIndex =
             name.indexOf(" - ") > -1 ? name.indexOf(" - ") :
-                name.indexOf(", ") > -1 ? name.indexOf(", ") :
-                    name.indexOf(": ");
-        if (separatorIndex > 0) {
+                name.indexOf("; ") > -1 ? name.indexOf("; ") :
+                    name.indexOf("| ") > -1 ? name.indexOf("| ") :
+                        name.indexOf(": ") > -1 ? name.indexOf(": ") :
+                            name.indexOf(", ");
+        if (separatorIndex > -1) {
             ProductObject.name = name.substring(0, separatorIndex).trim();
             ProductObject.short_description = name.substring(separatorIndex + 2, name.length).trim();
         } else {
-            ProductObject.name = name;
+            // check if there is a long string between parenthesis
+            let regExp = /(\([^)]+\))$/;
+            let matches = regExp.exec(name);
+            if (matches) {
+                let description = matches[1]; // description with parenthesis
+                ProductObject.name = name.replace(description, "").trim();
+                ProductObject.short_description = description.substring(1, description.length - 1);
+            } else {
+                ProductObject.name = name;
+            }
         }
+
+        if (ProductObject.name)
+            ProductObject.name = ProductObject.name.charAt(0).toUpperCase() + ProductObject.name.slice(1);
+        if (ProductObject.short_description)
+            ProductObject.short_description = ProductObject.short_description.charAt(0).toUpperCase() + ProductObject.short_description.slice(1);
 
         ProductObject.price = getPrice(page);
         let image = $(page).find('.imgTagWrapper').find('img').attr("src");
 
-        if(!image)
+        if (!image)
             image = $(page).find('img#imgBlkFront').attr("src");
-        ProductObject.image = image;
+        ProductObject.images[0] = image;
+
+        asinText.value = productAsin;
+
         nameText.value = ProductObject.name;
         shortDescriptionText.value = ProductObject.short_description;
+        editorsCommentText.value = ProductObject.editors_comment;
         brandText.value = ProductObject.brand;
         priceText.value = ProductObject.price;
-        imageObject.src = ProductObject.image;
+        imageObject.src = ProductObject.images[0];
 
         //need to optimise
-        ProductObject.amazon_link = countryInfo[productCountry].amazon_link + "/gp/product/" + productCode;
+        ProductObject.amazon_link = countryInfo[productCountry].amazon_link + "/gp/product/" + productAsin;
         ProductObject.currency = countryInfo[productCountry].currency;
         currencySelect.value = ProductObject.currency;
         amazonLink.value = ProductObject.amazon_link;
@@ -199,6 +261,9 @@ chrome.runtime.onMessage.addListener(function (request, sender) {
         shortDescriptionText.onkeyup = function () {
             ProductObject.short_description = this.value;
         };
+        editorsCommentText.onkeyup = function () {
+            ProductObject.editors_comment = this.value;
+        };
         brandText.onkeyup = function () {
             ProductObject.brand = this.value;
         };
@@ -209,8 +274,8 @@ chrome.runtime.onMessage.addListener(function (request, sender) {
             ProductObject.currency = this.value;
         };
         asinText.onkeyup = function () {
-            productCode = this.value;
-            ProductObject.amazon_link = countryInfo[productCountry].amazon_link + "/gp/product/" + productCode;
+            productAsin = this.value;
+            ProductObject.amazon_link = countryInfo[productCountry].amazon_link + "/gp/product/" + productAsin;
             amazonLink.value = ProductObject.amazon_link;
         };
         amazonLink.onkeyup = function () {
@@ -239,10 +304,7 @@ function onWindowLoad() {
         event.preventDefault();
         firebase.auth().signInWithEmailAndPassword(username, password).then(function (user) {
             console.log('User connected', user);
-        }).catch(function (error) {
-            $('#error').removeClass("d-none");
-            $('#errorText').html(error.message);
-        });
+        }).catch(error => showError(error.message));
     });
 
     firebase.auth().onAuthStateChanged(function (user) {
@@ -254,15 +316,16 @@ function onWindowLoad() {
             $('#login').removeClass("d-none");
         }
         $('#loader').addClass("d-none");
+        if (invalidUrl)
+            setWrongPageMode();
     });
 
 
     logoutButton.addEventListener("click", function () {
-        firebase.auth().signOut().then(function () {
-            // Sign-out successful.
-        }).catch(function (error) {
-            // An error happened.
-        });
+        firebase.auth().signOut()
+            .then(function () {
+                // Sign-out successful.
+            }).catch(error => showError(error.message));
     });
 
     loginGoogle.addEventListener("click", function () {
@@ -274,17 +337,7 @@ function onWindowLoad() {
             const user = result.user;
             console.log(user);
             // ...
-        }).catch(function (error) {
-            // Handle Errors here.
-            const errorCode = error.code;
-            const errorMessage = error.message;
-            // The email of the user's account used.
-            const email = error.email;
-            // The firebase.auth.AuthCredential type that was used.
-            const credential = error.credential;
-            console.log(error);
-            // ...
-        });
+        }).catch(error => showError(error.message));
     });
 
     chrome.tabs.executeScript(null, {
@@ -305,7 +358,7 @@ function onWindowLoad() {
 // Download a file form a url.
 function saveFile() {
     // Get file name from url.
-    const url = ProductObject.image;
+    const url = ProductObject.images[0];
     const filename = url.substring(url.lastIndexOf("/") + 1).split("?")[0];
     const xhr = new XMLHttpRequest();
     xhr.addEventListener("load", transferComplete);
@@ -337,7 +390,7 @@ function saveFile() {
                 const file = e.target.result;
                 const base64result = reader.result.split(',')[1];
                 const blob = b64toBlob(base64result);
-                const uploadTask = storageRef.child('products/' + productCode + '.jpg').put(blob, metadata);
+                const uploadTask = storageRef.child('products/' + productAsin + '.jpg').put(blob, metadata);
 
                 uploadTask.on('state_changed', null, function (error) {
                     // [START onfailure]
@@ -346,34 +399,29 @@ function saveFile() {
                 }, function () {
                     console.log('Uploaded', uploadTask.snapshot.totalBytes, 'bytes.');
                     console.log(uploadTask.snapshot.metadata);
-                    const imageRef = storageRef.child('products/' + productCode + '.jpg');
+                    const imageRef = storageRef.child('products/' + productAsin + '.jpg');
                     imageRef.getDownloadURL().then(function (url) {
-                        ProductObject.image = url;
-                        db.collection("sites").doc(productCountry).collection("products").doc(productCode).set(ProductObject)
+                        ProductObject.images[0] = url;
+                        db.collection("sites").doc(productCountry).collection("products").doc(productAsin).set(ProductObject)
                             .then(function () {
                                 console.log("Product Uploaded");
                                 document.getElementById('result-text').innerHTML = '<strong>Product Uploaded</strong>';
-                            })
-                            .catch(function (error) {
-                                console.log(error);
-                            });
-                    });
-                }).catch(function (error) {
-                    console.log("image load error" + error);
-                })
-
-
-                // `data-uri`
+                            }).catch(error => showError(error.message));
+                    }).catch(error => showError(error.message));
+                }).catch(error => showError(error.message));
 
             };
             reader.readAsDataURL(this.response);
         }
-        ;
     };
-
 
     xhr.open('GET', url);
     xhr.send();
+}
+
+function showError(errorMessage) {
+    $('#error').removeClass("d-none");
+    $('#errorText').html($('#errorText').html() + `<p>${errorMessage}</p>`);
 }
 
 function b64toBlob(b64Data, contentType, sliceSize) {
