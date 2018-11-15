@@ -28,7 +28,7 @@
     }
 </style>
 <div style="width:800px; min-height:450px;" class="p-3">
-    <div id="loader">
+    <div id="loader" class="mt-4">
         <div class="d-flex justify-content-around">
             <div class="loader"></div>
         </div>
@@ -72,98 +72,111 @@
     <div id="main" class="d-none">
         <div class="container-fluid py-4">
 
+            <form id="main-form" class="needs-validation" novalidate>
 
-            <div class="row">
-                <div class="col">
-                    <h2>Dadaki Product Picker</h2>
+                <div class="row">
+                    <div class="col">
+                        <h2>Dadaki Product Picker</h2>
+                    </div>
+                    <div class="col">
+                        <div class="text-right mb-2">
+                            <button class="btn btn-info btn-sm" id="logout">Log Out</button>
+                        </div>
+                        <div class="text-right" id="amazonCountry"></div>
+                    </div>
                 </div>
-                <div class="col">
+                <div id="already_there" class="d-none mt-3">
+                    <div class="alert alert-warning" role="alert">
+                        This product is already on Dadaki
+                    </div>
+                </div>
+                <div class="form-row">
+                    <div class="col">
+                        <div class="form-group">
+                            <label>ASIN</label>
+                            <input disabled type="text" name="asin" class="form-control" id="asin"/>
+                        </div>
+                    </div>
+                    <div class="col">
 
-                    <div class="text-right mb-2">
-                        <button class="btn btn-info btn-sm" id="logout">Log Out</button>
-                    </div>
-                    <div class="text-right" id="amazonCountry"></div>
-                </div>
-            </div>
-            <div class="form-row">
-                <div class="col">
-                    <div class="form-group">
-                        <label>ASIN</label>
-                        <input disabled type="text" name="asin" class="form-control" id="asin"/>
+                        <div class="form-group">
+                            <label>Amazon Link</label>
+                            <input disabled type="text" name="amazonLink" class="form-control" id="amazonLink"/>
+                        </div>
                     </div>
                 </div>
-                <div class="col">
-
-                    <div class="form-group">
-                        <label>Amazon Link</label>
-                        <input disabled type="text" name="amazonLink" class="form-control" id="amazonLink"/>
-                    </div>
-                </div>
-            </div>
-            <div class="form-row">
-                <div class="col">
-                    <div class="form-group">
-                        <label for="name">Product Name</label>
-                        <input type="text" name="name" class="form-control" id="name"/>
-                    </div>
-                </div>
-                <div class="col">
-                    <div class="form-group">
-                        <label for="brand">Brand</label>
-                        <input type="text" name="brand" class="form-control" id="brand"/>
-                    </div>
-                </div>
-            </div>
-            <div class="form-group">
-                <label for="short_description">Short Description</label>
-                <input type="text" name="short_description" class="form-control" id="short_description"/>
-            </div>
-            <div class="form-group">
-                <label for="editors_comment">Editor's comment</label>
-                <input type="text" name="short_description" class="form-control" id="editors_comment"/>
-            </div>
-
-            <div class="form-row">
-                <div class="col">
-                    <div class="form-group">
-                        <label>Price</label>
-                        <div class="input-group mb-3">
-                            <input type="text" name="price" class="form-control" id="price"/>
-                            <div class="input-group-append">
-                                <select name="currency" id="currency">
-                                    <option value="EUR">&euro;</option>
-                                    <option value="USD">&dollar;</option>
-                                    <option value="GBP">&pound;</option>
-                                </select>
+                <div class="form-row">
+                    <div class="col">
+                        <div class="form-group">
+                            <label for="name">Product Name</label>
+                            <input type="text" name="name" class="form-control" id="name" maxlength="60" required/>
+                            <div class="invalid-feedback">
+                                Name max 60 characters. Should be shorter than the description
                             </div>
                         </div>
                     </div>
-
-                    <div data-toggle="tooltip" class="custom-control"
-                         title="Tick this if you don't want the product featured in the main page. For example if it's a product for an article only">
-                        <input type="checkbox" name="code" id="feed_excluded"/>
-                        <label for="feed_excluded">Excluded from feed</label>
+                    <div class="col">
+                        <div class="form-group">
+                            <label for="brand">Brand</label>
+                            <input type="text" name="brand" class="form-control" id="brand" required/>
+                        </div>
                     </div>
                 </div>
-                <div class="col">
-                    <p>Image</p><br/>
-                    <img id="imageObject" src="" style="width:100px; height:auto;"/>
+                <div class="form-group">
+                    <label for="short_description">Short Description</label>
+                    <input type="text" name="short_description" class="form-control" id="short_description" required/>
+                    <div class="invalid-feedback">
+                        Please provide a valid description. Needs to be longer than the product name
+                    </div>
                 </div>
-            </div>
-
-            <div class="form-group">
-                <label for="categories">Category</label>
-                <div class="d-flex flex-wrap flex-column align-content-start" style="max-height: 400px;"
-                     id="categories">
+                <div class="form-group">
+                    <label for="editors_comment">Editor's comment</label>
+                    <input type="text" name="short_description" class="form-control" id="editors_comment"/>
                 </div>
-            </div>
 
-            <div class="text-right">
-                <button class="btn btn-primary mt-2" id="addToDadaki">Add to Dadaki</button>
-            </div>
+                <div class="form-row">
+                    <div class="col">
+                        <div class="form-group">
+                            <label>Price</label>
+                            <div class="input-group mb-3">
+                                <input name="price" class="form-control" id="price" type="number" min="0" step="0.01" required/>
+                                <div class="input-group-append">
+                                    <select name="currency" id="currency" required>
+                                        <option value="EUR">&euro;</option>
+                                        <option value="USD">&dollar;</option>
+                                        <option value="GBP">&pound;</option>
+                                    </select>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div data-toggle="tooltip" class="custom-control"
+                             title="Tick this if you don't want the product featured in the main page. For example if it's a product for an article only">
+                            <input type="checkbox" name="code" id="feed_excluded"/>
+                            <label for="feed_excluded">Excluded from feed</label>
+                        </div>
+                    </div>
+                    <div class="col">
+                        <p>Image</p><br/>
+                        <img id="imageObject" src="" style="width:100px; height:auto;"/>
+                    </div>
+                </div>
+
+                <div class="form-group">
+                    <label for="categories">Category</label>
+                    <div class="form-group d-flex flex-wrap flex-column align-content-start" style="max-height: 400px;"
+                         id="categories">
+                    </div>
+                </div>
+
+                <div class="text-right">
+                    <button class="btn btn-primary mt-2" type="submit">Add to Dadaki</button>
+                </div>
+            </form>
         </div>
+
     </div>
-    <div id="result" style="display:none;">
+    <div id="result" class="d-none">
         <div class="d-flex align-items-center justify-content-center" style="height:300px">
             <div id="result-text" class="p-5"></div>
         </div>
@@ -172,6 +185,6 @@
     </div>
 </div>
 <script src="jquery.js"></script>
-<script src="popup.js"></script>
+<script src="popup.js" type="text/javascript" charset="utf-8"></script>
 </body>
 </html>

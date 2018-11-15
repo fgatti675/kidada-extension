@@ -9,7 +9,6 @@ const imageObject = document.getElementById('imageObject');
 const feedExcluded = document.getElementById('feed_excluded');
 const amazonLink = document.getElementById('amazonLink');
 const amazonCountry = document.getElementById('amazonCountry');
-const addToDadaki = document.getElementById('addToDadaki');
 const categoriesGroup = document.getElementById('categories');
 const logoutButton = document.getElementById('logout');
 const loginGoogle = document.getElementById('loginGoogle');
@@ -46,7 +45,7 @@ const countryInfo = {
 };
 
 let productAsin = null;
-let productCountry = null;
+let locale = null;
 
 const categories = null;
 
@@ -68,6 +67,7 @@ db.settings({
 
 const ProductObject = {
     added_on: firebase.firestore.FieldValue.serverTimestamp(),
+    added_by: null,
     amazon_link: null,
     brand: null,
     images: [],
@@ -93,18 +93,18 @@ chrome.tabs.query({active: true, currentWindow: true}, function (tabs) {
     let url = new URL(tabs[0].url);
     //need to optimise
     if (url.host === "www.amazon.es") {
-        productCountry = "es_ES";
+        locale = "es_ES";
     } else if (url.host === "www.amazon.de") {
-        productCountry = "de_DE";
+        locale = "de_DE";
     } else if (url.host === "www.amazon.it") {
-        productCountry = "it_IT";
+        locale = "it_IT";
     } else if (url.host === "www.amazon.co.uk") {
-        productCountry = "en_GB";
+        locale = "en_GB";
     } else if (url.host === "www.amazon.com") {
-        productCountry = "en_US";
+        locale = "en_US";
     } else {
         invalidUrl = true;
-        console.log("Wrong host");
+        console.error("Wrong host");
         setWrongPageMode();
         return;
     }
@@ -116,7 +116,7 @@ chrome.tabs.query({active: true, currentWindow: true}, function (tabs) {
     }
 
     if (!productAsin) {
-        console.log("Wrong asin");
+        console.error("Wrong asin");
         invalidUrl = true;
     }
 });
@@ -124,18 +124,24 @@ chrome.tabs.query({active: true, currentWindow: true}, function (tabs) {
 function getBrand(page) {
     let author = $.trim($(page).find('.authorNameLink').text());
     if (author) {
-        return author;
+        return sanitize(author);
     }
-    return $.trim($(page).find('#bylineInfo').text());
+    return sanitize($.trim($(page).find('#bylineInfo').text()));
 }
 
 function getPrice(page) {
     let price = $.trim($(page).find('#priceblock_ourprice').text());
+
+    if (!price) {
+        price = $.trim($(page).find('.a-size-base .a-color-price .priceblock_vat_inc_price').text());
+    }
+
     if (!price) {
         price = $.trim($(page).find('#buyNewSection .a-color-price').text());
-        if (!price) {
-            price = $.trim($(page).find('.a-color-price').text());
-        }
+    }
+
+    if (!price) {
+        price = $.trim($(page).find('.a-color-price').text());
     }
     let cleanedPrice = cleanPrice(price);
     return parseFloat(cleanedPrice);
@@ -155,7 +161,17 @@ function cleanPrice(string) {
 
 chrome.runtime.onMessage.addListener(function (request, sender) {
 
-    firebase.firestore().collection('sites').doc(productCountry).collection('categories')
+
+    firebase.firestore().collection('sites').doc(locale).collection('products')
+        .doc(productAsin)
+        .get()
+        .then(snapshot => {
+            if(snapshot.exists){
+                document.getElementById('already_there').classList.remove("d-none");
+            }
+        }).catch((reason) => showError(reason));
+
+    firebase.firestore().collection('sites').doc(locale).collection('categories')
         .orderBy('meta_category', 'desc')
         .get()
         .then(snapshot => {
@@ -175,10 +191,10 @@ chrome.runtime.onMessage.addListener(function (request, sender) {
                 categoriesHtml = categoriesHtml + "<div class='bg-light p-2'>";
                 categoriesHtml = categoriesHtml + "<div class=\"small\"><strong>" + key + "</strong></div>";
                 values.forEach((doc) => {
-                    categoriesHtml = categoriesHtml + "<label class=\"small mr-2\">"
-                        + "<input type=\"radio\" name=\"optradio\" class='mr-2' value=\"" + doc.id + "\">"
-                        + doc.data().name
-                        + "</label>";
+                    categoriesHtml = categoriesHtml + "<div class=\"form-check\">" +
+                        "<input class=\"form-check-input\" type=\"radio\" name=\"choice\" id=\"emailConsentRadio\" value=\"" + doc.id + "\" required>" +
+                        "<label class=\"form-check-label small\" for=\"" + doc.id + "\">" + doc.data().name + "</label>" +
+                        "</div>";
                 });
                 categoriesHtml = categoriesHtml + "</div>";
                 categoriesHtml = categoriesHtml + "</div>";
@@ -186,11 +202,11 @@ chrome.runtime.onMessage.addListener(function (request, sender) {
 
             categoriesGroup.innerHTML = categoriesHtml;
             $(categoriesGroup).find("input").change(function () {
-                let value = this.value;
-                ProductObject.category = value;
+                ProductObject.category = this.value;
                 console.log(ProductObject);
             });
         }).catch((reason) => showError(reason));
+
 
     if (request.action === "getSource") {
         const page = $.parseHTML(request.source);
@@ -198,43 +214,69 @@ chrome.runtime.onMessage.addListener(function (request, sender) {
         let brand = getBrand(page);
         ProductObject.brand = brand;
 
-        let name = $(page).find('#productTitle').text().replace(brand, "").trim();
-        console.log(name);
-        console.log(name.startsWith("– "));
+        let brandRegEx = brand.length > 3
+            ? brand
+                .split('').join('\\s*')
+                .replace(/[aàáâäãåā]/, '[aàáâäãåā]')
+                .replace(/[eèéêëēė]/, '[eèéêëēė]')
+                .replace(/[iîïíīįì]/, '[iîïíīįì]')
+                .replace(/[oøôöòó]/, '[oøôöòó]')
+                .replace(/[uûüùúū]/, '[uûüùúū]')
+            : brand;
+
+        console.log(brandRegEx);
+        const nameRegEx = new RegExp(
+            brandRegEx,
+            "ig");
+
+        let name = $(page).find('#productTitle').text().replace(nameRegEx, "").trim();
         if (name.startsWith("- ") || name.startsWith("\u8211") || name.startsWith("\u2013")) // –
             name = name.substring(2, name.length);
 
         // check if one of this strings is there to separate
         let separatorIndex =
-            name.indexOf(" - ") > -1 ? name.indexOf(" - ") :
-                name.indexOf("; ") > -1 ? name.indexOf("; ") :
-                    name.indexOf("| ") > -1 ? name.indexOf("| ") :
-                        name.indexOf(": ") > -1 ? name.indexOf(": ") :
-                            name.indexOf(", ");
+            name.indexOf("- ") > -1 ? name.indexOf("- ") :
+                name.indexOf("–") > -1 ? name.indexOf("–") :
+                    name.indexOf("\u2013") > -1 ? name.indexOf("\u2013") :
+                        name.indexOf("\u2014") > -1 ? name.indexOf("\u2014") :
+                            name.indexOf("\u2015") > -1 ? name.indexOf("\u2015") :
+                                name.indexOf("; ") > -1 ? name.indexOf("; ") :
+                                    name.indexOf("| ") > -1 ? name.indexOf("| ") :
+                                        name.indexOf(": ") > -1 ? name.indexOf(": ") :
+                                            name.indexOf(", ");
         if (separatorIndex > -1) {
-            ProductObject.name = name.substring(0, separatorIndex).trim();
-            ProductObject.short_description = name.substring(separatorIndex + 2, name.length).trim();
+            ProductObject.name = sanitize(name.substring(0, separatorIndex).trim());
+            ProductObject.short_description = sanitize(name.substring(separatorIndex + 1, name.length).trim());
         } else {
             // check if there is a long string between parenthesis
             let regExp = /(\([^)]+\))$/;
             let matches = regExp.exec(name);
             if (matches) {
                 let description = matches[1]; // description with parenthesis
-                ProductObject.name = name.replace(description, "").trim();
-                ProductObject.short_description = description.substring(1, description.length - 1);
+                ProductObject.name = sanitize(name.replace(description, "").trim());
+                ProductObject.short_description = sanitize(description.substring(1, description.length - 1));
             } else {
-                ProductObject.name = name;
+                ProductObject.name = sanitize(name);
             }
         }
 
+        function sentenceCase(input) {
+            input = (input === undefined || input === null) ? '' : input;
+            return input.toString().replace(/(^|\. *)([a-z])/g, function (match, separator, char) {
+                return separator + char.toUpperCase();
+            });
+        }
+
         if (ProductObject.name)
-            ProductObject.name = ProductObject.name.charAt(0).toUpperCase() + ProductObject.name.slice(1);
-        if (ProductObject.short_description)
-            ProductObject.short_description = ProductObject.short_description.charAt(0).toUpperCase() + ProductObject.short_description.slice(1);
+            ProductObject.name = sentenceCase(ProductObject.name);
+        if (ProductObject.short_description) {
+            ProductObject.short_description = ProductObject.short_description.replace(";", ".");
+            ProductObject.short_description = sentenceCase(ProductObject.short_description.replace(";", "."));
+        }
 
         ProductObject.price = getPrice(page);
-        let image = $(page).find('.imgTagWrapper').find('img').attr("src");
 
+        let image = $(page).find('.selected .imgTagWrapper').find('img').attr("src");
         if (!image)
             image = $(page).find('img#imgBlkFront').attr("src");
         ProductObject.images[0] = image;
@@ -249,11 +291,11 @@ chrome.runtime.onMessage.addListener(function (request, sender) {
         imageObject.src = ProductObject.images[0];
 
         //need to optimise
-        ProductObject.amazon_link = countryInfo[productCountry].amazon_link + "/gp/product/" + productAsin;
-        ProductObject.currency = countryInfo[productCountry].currency;
+        ProductObject.amazon_link = countryInfo[locale].amazon_link + "/gp/product/" + productAsin;
+        ProductObject.currency = countryInfo[locale].currency;
         currencySelect.value = ProductObject.currency;
         amazonLink.value = ProductObject.amazon_link;
-        amazonCountry.innerText = countryInfo[productCountry].name;
+        amazonCountry.innerText = countryInfo[locale].name;
 
         nameText.onkeyup = function () {
             ProductObject.name = this.value;
@@ -275,22 +317,54 @@ chrome.runtime.onMessage.addListener(function (request, sender) {
         };
         asinText.onkeyup = function () {
             productAsin = this.value;
-            ProductObject.amazon_link = countryInfo[productCountry].amazon_link + "/gp/product/" + productAsin;
+            ProductObject.amazon_link = countryInfo[locale].amazon_link + "/gp/product/" + productAsin;
             amazonLink.value = ProductObject.amazon_link;
         };
         amazonLink.onkeyup = function () {
             ProductObject.amazon_link = this.value;
         };
         feedExcluded.onchange = function () {
-            ProductObject.feed_excluded = this.value;
+            ProductObject.feed_excluded = this.checked;
         };
-
-        addToDadaki.onclick = function () {
-            document.getElementById('main').style.display = 'none';
-            document.getElementById('result').style.display = 'block';
-            document.getElementById('result-text').innerHTML = '<p>loading...</p>';
-            saveFile();
+        function validateNameAndDescription() {
+            console.log(ProductObject.name.length);
+            console.log(nameText.maxLength);
+            if (!ProductObject.short_description) {
+                shortDescriptionText.setCustomValidity("Invalid field.");
+            }
+            else if (!ProductObject.name || ProductObject.name.length > nameText.maxLength) {
+                nameText.setCustomValidity("Invalid field.");
+            }
+            else if (ProductObject.name.length > ProductObject.short_description.length) {
+                nameText.setCustomValidity("Invalid field.");
+                shortDescriptionText.setCustomValidity("Invalid field.");
+            } else {
+                nameText.setCustomValidity("");
+                shortDescriptionText.setCustomValidity("");
+            }
         }
+
+        const form = document.getElementById('main-form');
+        form.addEventListener('submit', function (event) {
+            validateNameAndDescription();
+            event.preventDefault();
+            form.classList.add('was-validated');
+            if (form.checkValidity() === false) {
+                console.log('Not validated');
+                event.stopPropagation();
+                return;
+            }
+            console.log('Validated');
+            document.getElementById('main').classList.add("d-none");
+            document.getElementById('loader').classList.remove("d-none");
+            saveFile();
+        });
+        //
+        // addToDadaki.onclick = function () {
+        //     document.getElementById('main').classList.add("d-none");
+        //     document.getElementById('loader').classList.remove("d-none");
+        //     saveFile();
+        // }
     }
 });
 
@@ -359,7 +433,6 @@ function onWindowLoad() {
 function saveFile() {
     // Get file name from url.
     const url = ProductObject.images[0];
-    const filename = url.substring(url.lastIndexOf("/") + 1).split("?")[0];
     const xhr = new XMLHttpRequest();
     xhr.addEventListener("load", transferComplete);
     xhr.addEventListener("error", transferFailed);
@@ -367,20 +440,16 @@ function saveFile() {
 
     xhr.responseType = 'blob';
     xhr.onload = function () {
-        const a = document.createElement('a');
-        a.href = window.URL.createObjectURL(xhr.response); // xhr.response is a blob
-        a.download = filename; // Set the file name.
-        a.style.display = 'none';
-        document.body.appendChild(a);
-        a.click();
-        delete a;
-
         if (this.status === 200) {
             // `blob` response
             const reader = new FileReader();
             reader.onload = function (e) {
 
                 const auth = firebase.auth();
+
+                console.log(firebase.auth());
+                ProductObject.added_by = firebase.auth().currentUser.uid;
+
                 const storageRef = firebase.storage().ref();
 
                 const metadata = {
@@ -398,17 +467,18 @@ function saveFile() {
                     // [END onfailure]
                 }, function () {
                     console.log('Uploaded', uploadTask.snapshot.totalBytes, 'bytes.');
-                    console.log(uploadTask.snapshot.metadata);
                     const imageRef = storageRef.child('products/' + productAsin + '.jpg');
                     imageRef.getDownloadURL().then(function (url) {
                         ProductObject.images[0] = url;
-                        db.collection("sites").doc(productCountry).collection("products").doc(productAsin).set(ProductObject)
+                        db.collection("sites").doc(locale).collection("products").doc(productAsin).set(ProductObject)
                             .then(function () {
                                 console.log("Product Uploaded");
-                                document.getElementById('result-text').innerHTML = '<strong>Product Uploaded</strong>';
+                                document.getElementById('loader').classList.add("d-none");
+                                document.getElementById('result').classList.remove("d-none");
+                                document.getElementById('result-text').innerHTML = '<strong>Product Uploaded &#x1F64C\t</strong>';
                             }).catch(error => showError(error.message));
                     }).catch(error => showError(error.message));
-                }).catch(error => showError(error.message));
+                });
 
             };
             reader.readAsDataURL(this.response);
@@ -420,8 +490,10 @@ function saveFile() {
 }
 
 function showError(errorMessage) {
-    $('#error').removeClass("d-none");
-    $('#errorText').html($('#errorText').html() + `<p>${errorMessage}</p>`);
+    document.getElementById('loader').classList.add("d-none");
+    document.getElementById('main').classList.remove("d-none");
+    document.getElementById('error').classList.remove("d-none");
+    document.getElementById('errorText').innerHTML = `<p>${errorMessage}</p>`;
 }
 
 function b64toBlob(b64Data, contentType, sliceSize) {
@@ -442,10 +514,13 @@ function b64toBlob(b64Data, contentType, sliceSize) {
         byteArrays.push(byteArray);
     }
 
-    const blob = new Blob(byteArrays, {type: contentType});
-    return blob;
+    return new Blob(byteArrays, {type: contentType});
 }
 
+function sanitize(s) {
+    const regex = /[\s\t\n\r]+/g;
+    return s.replace(regex, " ").trim();
+}
 
 function transferComplete(evt) {
     console.log("transfer complete");
