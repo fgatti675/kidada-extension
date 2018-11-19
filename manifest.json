@@ -1,6 +1,6 @@
 {
   "name": "Dadaki Product Picker",
-  "version": "0.8",
+  "version": "0.10",
   "description": "Select Amazon products and add it to the Dadaki backend",
   "permissions": ["activeTab", "storage", "identity", "https://www.amazon.es/"],
   "content_security_policy": "script-src 'self' https://cdn.firebase.com https://www.gstatic.com https://*.firebaseio.com https://apis.google.com; object-src 'self'",
