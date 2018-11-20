@@ -5,7 +5,7 @@ const editorsCommentText = document.getElementById('editors_comment');
 const brandText = document.getElementById('brand');
 const priceText = document.getElementById('price');
 const currencySelect = document.getElementById('currency');
-const imageObject = document.getElementById('imageObject');
+const imageContainer = document.getElementById('image_container');
 const feedExcluded = document.getElementById('feed_excluded');
 const amazonLink = document.getElementById('amazonLink');
 const amazonCountry = document.getElementById('amazonCountry');
@@ -50,6 +50,8 @@ let locale = null;
 
 const categories = null;
 
+let selectedAmazonImageUrls = [];
+
 // Initialize Firebase
 const config = {
     apiKey: "AIzaSyDVCZQKtM9dxiUN60Eeq61bea0J5L-3pck",
@@ -65,6 +67,7 @@ const db = firebase.firestore();
 db.settings({
     timestampsInSnapshots: true
 });
+const storageRef = firebase.storage().ref();
 
 let ProductObject = {
     added_on: firebase.firestore.FieldValue.serverTimestamp(),
@@ -91,37 +94,90 @@ function setWrongPageMode() {
     $('#wrong_site').removeClass("d-none");
 }
 
+let scriptInjected = false;
 chrome.tabs.query({active: true, currentWindow: true}, function (tabs) {
-    let url = new URL(tabs[0].url);
-    //need to optimise
-    if (url.host === "www.amazon.es") {
-        locale = "es_ES";
-    } else if (url.host === "www.amazon.de") {
-        locale = "de_DE";
-    } else if (url.host === "www.amazon.it") {
-        locale = "it_IT";
-    } else if (url.host === "www.amazon.co.uk") {
-        locale = "en_GB";
-    } else if (url.host === "www.amazon.com") {
-        locale = "en_US";
-    } else {
-        invalidUrl = true;
-        console.error("Wrong host");
-        setWrongPageMode();
-        return;
+
+    if (!scriptInjected) {
+        scriptInjected = true;
+        chrome.tabs.executeScript(tabs[0].id,
+            {file: "activate_amazon_images.js"}, // we run this script to be able to access the images
+            () => initialParse());
     }
 
-    let reg = /\/(([0-9]|[A-Z])+)(\/|\?|$)/g;
-    while (match = reg.exec(url)) {
-        let asin = match[1];
-        productAsin = asin;
-    }
+    function initialParse() {
 
-    if (!productAsin) {
-        console.error("Wrong asin");
-        invalidUrl = true;
+        let url = new URL(tabs[0].url);
+        //need to optimise
+        if (url.host === "www.amazon.es") {
+            locale = "es_ES";
+        } else if (url.host === "www.amazon.de") {
+            locale = "de_DE";
+        } else if (url.host === "www.amazon.it") {
+            locale = "it_IT";
+        } else if (url.host === "www.amazon.co.uk") {
+            locale = "en_GB";
+        } else if (url.host === "www.amazon.com") {
+            locale = "en_US";
+        } else {
+            invalidUrl = true;
+            console.error("Wrong host");
+            setWrongPageMode();
+        }
+
+        let reg = /\/(([0-9]|[A-Z])+)(\/|\?|$)/g;
+        while (match = reg.exec(url)) {
+            let asin = match[1];
+            productAsin = asin;
+        }
+
+        if (!productAsin) {
+            console.error("Wrong asin");
+            invalidUrl = true;
+        }
+
+        requestSource();
     }
 });
+
+function requestSource() {
+
+    chrome.tabs.executeScript(null, {
+        file: "get_page_sources.js"
+    }, function () {
+        // If you try and inject into an extensions page or the webstore/NTP you'll get an error
+        if (chrome.runtime.lastError) {
+            message.innerText = 'There was an error injecting script : \n' + chrome.runtime.lastError.message;
+        }
+    });
+
+    chrome.runtime.onMessage.addListener(function (request, sender) {
+
+        if (request.action === "getSource") {
+
+            const page = $.parseHTML(request.source);
+
+            firebase.firestore().collection('sites').doc(locale).collection('products')
+                .doc(productAsin)
+                .get()
+                .then(async snapshot => {
+                    if (snapshot.exists) {
+                        existingProduct = true;
+                        document.getElementById('already_there').classList.remove("d-none");
+                        submitButton.innerText = "Update product";
+                        await bindExistingProduct(snapshot);
+                    } else {
+                        parseSourcePage(page);
+                    }
+                    bindForm();
+                }).catch((reason) => showError(reason));
+
+            loadImages(page);
+            loadCategories();
+
+            addFormListeners();
+        }
+    });
+}
 
 
 function loadCategories() {
@@ -152,7 +208,6 @@ function loadCategories() {
                         ">" +
                         "<label class=\"form-check-label small\" for=\"" + doc.id + "\">" + doc.data().name + "</label>" +
                         "</div>";
-                    console.log(categoriesHtml);
                 });
                 categoriesHtml = categoriesHtml + "</div>";
                 categoriesHtml = categoriesHtml + "</div>";
@@ -161,7 +216,6 @@ function loadCategories() {
             categoriesGroup.innerHTML = categoriesHtml;
             $(categoriesGroup).find("input").change(function () {
                 ProductObject.category = this.value;
-                console.log(ProductObject);
             });
         }).catch((reason) => showError(reason));
 }
@@ -176,18 +230,23 @@ function bindForm() {
     editorsCommentText.value = ProductObject.editors_comment;
     brandText.value = ProductObject.brand;
     priceText.value = ProductObject.price;
-    imageObject.src = ProductObject.images[0];
 
     currencySelect.value = ProductObject.currency;
     amazonLink.value = ProductObject.amazon_link;
     amazonCountry.innerText = countryInfo[locale].name;
+
+    $('.image_checkbox').each(function (index) {
+        this.checked = selectedAmazonImageUrls.includes(this.src);
+    });
+
 }
 
-function bindExistingProduct(snapshot) {
+async function bindExistingProduct(snapshot) {
+    let snapshotImages = snapshot.get('images');
     ProductObject = {
         "asin": snapshot.id,
         "amazon_link": snapshot.get('amazon_link'),
-        "images": snapshot.get('images'),
+        "images": snapshotImages,
         "brand": snapshot.get('brand'),
         "name": snapshot.get('name'),
         "currency": snapshot.get('currency'),
@@ -200,30 +259,32 @@ function bindExistingProduct(snapshot) {
         "last_featured": snapshot.get('last_featured'),
         "liked_by_count": snapshot.get('liked_by_count'),
     };
+
+    for (let i = 0; i < snapshotImages.length; i++) {
+        const imageRef = storageRef.child(snapshotImages[i].key);
+        const metadata = await imageRef.getMetadata();
+        if (metadata.customMetadata && metadata.customMetadata.originalURL)
+            selectedAmazonImageUrls.push(metadata.customMetadata.originalURL);
+    }
 }
 
-chrome.runtime.onMessage.addListener(function (request, sender) {
+function loadImages(page) {
+    $(page).find(".image.item img").each(function (index) {
+        $(imageContainer).append("<div class='m-1 d-inline-block'>" +
+            "<input class='image_checkbox m-1' type='checkbox' src='" + this.src + "'>" +
+            "<img class='image' src='" + this.src + "' style='width:100px; height:auto;'/>" +
+            "</div>");
+    });
 
-    if (request.action === "getSource") {
-        firebase.firestore().collection('sites').doc(locale).collection('products')
-            .doc(productAsin)
-            .get()
-            .then(snapshot => {
-                if (snapshot.exists) {
-                    document.getElementById('already_there').classList.remove("d-none");
-                    existingProduct = true;
-                    submitButton.innerText = "Update product";
-                    bindExistingProduct(snapshot);
-                } else {
-                    parseSourcePage(request);
-                }
-                bindForm();
-            }).catch((reason) => showError(reason));
+    $(imageContainer).find("input").change(function () {
+        if (this.checked) {
+            selectedAmazonImageUrls.push(this.src);
+        } else {
+            selectedAmazonImageUrls.remove(this.src);
+        }
+    });
+}
 
-        loadCategories();
-        addFormListeners();
-    }
-});
 
 function addFormListeners() {
     nameText.onkeyup = function () {
@@ -258,7 +319,7 @@ function addFormListeners() {
 
     const form = document.getElementById('main-form');
     form.addEventListener('submit', function (event) {
-        validateNameAndDescription();
+        customValidation();
         event.preventDefault();
         form.classList.add('was-validated');
         if (form.checkValidity() === false) {
@@ -269,14 +330,21 @@ function addFormListeners() {
         console.log('Validated');
         document.getElementById('main').classList.add("d-none");
         document.getElementById('loader').classList.remove("d-none");
-        saveFile();
+        uploadImagesAndSave();
     });
 }
 
 
-function validateNameAndDescription() {
-    console.log(ProductObject.name.length);
-    console.log(nameText.maxLength);
+function customValidation() {
+    const imageCheckboxes = document.getElementsByClassName('image_checkbox');
+    for (let i = 0; i < imageCheckboxes.length; i++) {
+        if (selectedAmazonImageUrls.length === 0) {
+            imageCheckboxes[i].setCustomValidity("Invalid field.");
+        } else {
+            imageCheckboxes[i].setCustomValidity("");
+        }
+    }
+
     if (!ProductObject.short_description) {
         shortDescriptionText.setCustomValidity("Invalid field.");
     }
@@ -291,7 +359,6 @@ function validateNameAndDescription() {
         shortDescriptionText.setCustomValidity("");
     }
 }
-
 
 function onWindowLoad() {
 
@@ -338,103 +405,128 @@ function onWindowLoad() {
         }).catch(error => showError(error.message));
     });
 
-    chrome.tabs.executeScript(null, {
-        file: "getPagesSource.js"
-    }, function () {
-        // If you try and inject into an extensions page or the webstore/NTP you'll get an error
-        if (chrome.runtime.lastError) {
-            message.innerText = 'There was an error injecting script : \n' + chrome.runtime.lastError.message;
-        }
-    });
-
-    $(function () {
-        $('[data-toggle="tooltip"]').tooltip()
-    })
 }
 
 
-// Download a file form a url.
-function saveFile() {
+function saveProduct() {
 
-    function transferComplete(evt) {
-        console.log("transfer complete");
-    }
+    console.log("saving");
+    console.log(ProductObject);
 
-    function transferFailed(evt) {
-        console.log("An error occurred while transferring the file.");
-    }
-
-    function transferCanceled(evt) {
-        console.log("The transfer has been canceled by the user.");
-    }
-
-    // Get file name from url.
-    const url = ProductObject.images[0];
-    const xhr = new XMLHttpRequest();
-    xhr.addEventListener("load", transferComplete);
-    xhr.addEventListener("error", transferFailed);
-    xhr.addEventListener("abort", transferCanceled);
-
-    xhr.responseType = 'blob';
-    xhr.onload = function () {
-        if (this.status === 200) {
-            // `blob` response
-            const reader = new FileReader();
-            reader.onload = function (e) {
-
-                const auth = firebase.auth();
-
-                console.log(firebase.auth());
-                ProductObject.added_by = firebase.auth().currentUser.uid;
-
-                const storageRef = firebase.storage().ref();
-
-                const metadata = {
-                    'contentType': 'image/jpeg'
-                };
-
-                const file = e.target.result;
-                const base64result = reader.result.split(',')[1];
-                const blob = b64toBlob(base64result);
-                const uploadTask = storageRef.child('products/' + productAsin + '.jpg').put(blob, metadata);
-
-                uploadTask.on('state_changed', null, function (error) {
-                    // [START onfailure]
-                    console.error('Upload failed:', error);
-                    // [END onfailure]
-                }, function () {
-                    console.log('Uploaded', uploadTask.snapshot.totalBytes, 'bytes.');
-                    const imageRef = storageRef.child('products/' + productAsin + '.jpg');
-                    imageRef.getDownloadURL().then(function (url) {
-                        ProductObject.images[0] = url;
-
-                        let onProductSaved = function () {
-                            console.log("Product Uploaded");
-                            document.getElementById('loader').classList.add("d-none");
-                            document.getElementById('result').classList.remove("d-none");
-                            document.getElementById('result-text').innerHTML = '<strong>Product Uploaded &#x1F64C\t</strong>';
-                        };
-
-                        let doc = db.collection("sites").doc(locale).collection("products").doc(productAsin);
-                        if (!existingProduct) {
-                            ProductObject["liked_by_count"] = 0;
-                            doc.set(ProductObject)
-                                .then(onProductSaved).catch(error => showError(error.message));
-                        }
-                        else {
-                            doc.update(ProductObject)
-                                .then(onProductSaved).catch(error => showError(error.message));
-                        }
-                    }).catch(error => showError(error.message));
-                });
-
-            };
-            reader.readAsDataURL(this.response);
-        }
+    let onProductSaved = function () {
+        console.log("Product Uploaded");
+        document.getElementById('loader').classList.add("d-none");
+        document.getElementById('result').classList.remove("d-none");
+        document.getElementById('result-text').innerHTML = '<strong>Product Uploaded &#x1F64C\t</strong>';
     };
 
-    xhr.open('GET', url);
-    xhr.send();
+    let doc = db.collection("sites").doc(locale).collection("products").doc(productAsin);
+    if (!existingProduct) {
+        ProductObject["liked_by_count"] = 0;
+        doc.set(ProductObject)
+            .then(onProductSaved).catch(error => showError(error.message));
+    }
+    else {
+        doc.update(ProductObject)
+            .then(onProductSaved).catch(error => showError(error.message));
+    }
+}
+
+function uploadImagesAndSave() {
+    if (selectedAmazonImageUrls.length === 0) return;
+    console.log(selectedAmazonImageUrls);
+    let uploadPromises = [];
+    for (let i = 0; i < selectedAmazonImageUrls.length; i++) {
+        const url = selectedAmazonImageUrls[i];
+        uploadPromises.push(
+            uploadImage(url, i)
+        );
+    }
+
+    Promise.all(uploadPromises)
+        .then(function (values) {
+            console.log(values);
+            ProductObject.images = values;
+            saveProduct();
+        })
+        .catch((error) => showError(error));
+}
+
+// Download a file form a url and upload to storage
+function uploadImage(url, index) {
+    return new Promise((resolve, reject) => {
+
+        function transferComplete(evt) {
+            console.log("transfer complete");
+        }
+
+        function transferFailed(evt) {
+            console.log("An error occurred while transferring the file.");
+        }
+
+        function transferCanceled(evt) {
+            console.log("The transfer has been canceled by the user.");
+        }
+
+        // Get file name from url.
+        const xhr = new XMLHttpRequest();
+        xhr.addEventListener("load", transferComplete);
+        xhr.addEventListener("error", transferFailed);
+        xhr.addEventListener("abort", transferCanceled);
+
+        xhr.responseType = 'blob';
+        xhr.onload = function () {
+            if (this.status === 200) {
+                // `blob` response
+                const reader = new FileReader();
+                reader.onload = function (e) {
+
+                    const auth = firebase.auth();
+                    if (existingProduct)
+                        ProductObject.last_updated_by = firebase.auth().currentUser.uid;
+                    else
+                        ProductObject.added_by = firebase.auth().currentUser.uid;
+
+                    const metadata = {
+                        contentType: 'image/jpeg',
+                        customMetadata: {
+                            'originalURL': url
+                        }
+                    };
+
+                    const file = e.target.result;
+                    const base64result = reader.result.split(',')[1];
+                    const blob = b64toBlob(base64result);
+                    const fileName = 'products/' + productAsin + '-' + index + '.jpg';
+                    const uploadTask = storageRef.child(fileName).put(blob, metadata);
+
+                    uploadTask.on('state_changed', null, function (error) {
+                        showError(error);
+                        reject("Failed image upload: " + url);
+                    }, function () {
+                        console.log('Uploaded', uploadTask.snapshot.totalBytes, 'bytes.');
+                        const imageRef = storageRef.child(fileName);
+                        imageRef.getDownloadURL().then(function (url) {
+                            console.log("Resolving " + url);
+                            resolve({
+                                key: fileName,
+                                url: url
+                            })
+                        }).catch(error => {
+                            showError(error.message);
+                            reject("Failed image upload: " + url);
+                        });
+                    });
+
+                };
+                reader.readAsDataURL(this.response);
+            }
+        };
+
+        xhr.open('GET', url);
+        xhr.send();
+    });
+
 }
 
 function showError(errorMessage) {
@@ -478,7 +570,7 @@ function sanitize(s) {
 }
 
 
-function parseSourcePage(request) {
+function parseSourcePage(page) {
 
     function getBrand(page) {
         let author = $.trim($(page).find('.authorNameLink').text());
@@ -518,7 +610,6 @@ function parseSourcePage(request) {
         return string;
     }
 
-    const page = $.parseHTML(request.source);
 
     let brand = getBrand(page);
     ProductObject.brand = brand;
@@ -572,6 +663,7 @@ function parseSourcePage(request) {
 
     if (ProductObject.name)
         ProductObject.name = sentenceCase(ProductObject.name);
+
     if (ProductObject.short_description) {
         ProductObject.short_description = ProductObject.short_description.replace(";", ".");
         ProductObject.short_description = sentenceCase(ProductObject.short_description.replace(";", "."));
@@ -579,14 +671,10 @@ function parseSourcePage(request) {
 
     ProductObject.price = getPrice(page);
 
-    let image = $(page).find('.selected .imgTagWrapper').find('img').attr("src");
-    if (!image)
-        image = $(page).find('img#imgBlkFront').attr("src");
-    ProductObject.images[0] = image;
+    selectedAmazonImageUrls.push($(page).find(".image.item img").first()[0].src);
 
     ProductObject.amazon_link = countryInfo[locale].amazon_link + "/gp/product/" + productAsin;
     ProductObject.currency = countryInfo[locale].currency;
-
 
 }
 
