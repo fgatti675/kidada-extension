@@ -6,6 +6,7 @@
           integrity="sha384-Gn5384xqQ1aoWXA+058RXPxPg6fy4IWvTNh0E263XmFcJlSAwiGgFAW/dAiS6JXm" crossorigin="anonymous">
 
     <script src="https://www.gstatic.com/firebasejs/5.5.3/firebase.js"></script>
+
 </head>
 <body>
 <style>
@@ -129,10 +130,6 @@
                         Please provide a valid description. Needs to be longer than the product name
                     </div>
                 </div>
-                <div class="form-group">
-                    <label for="editors_comment">Editor's comment</label>
-                    <input type="text" name="short_description" class="form-control" id="editors_comment"/>
-                </div>
 
                 <div class="form-row">
                     <div class="col-4">
@@ -173,6 +170,13 @@
                     <button class="btn btn-primary mt-2" id="submit-button" type="submit">Add to Dadaki</button>
                 </div>
             </form>
+
+            <!--having this in the form breaks-->
+            <div class="form-group">
+                <label for="editors_comment">Editor's comment</label>
+                <textarea name="editors_comment" id="editors_comment"></textarea>
+            </div>
+
         </div>
 
     </div>
@@ -185,6 +189,8 @@
     </div>
 </div>
 <script src="jquery.js"></script>
+<script src="jquery-ui-1.12.1/jquery-ui.js"></script>
 <script src="popup.js" type="text/javascript" charset="utf-8"></script>
+<script src="textboxio/textboxio.js" type="text/javascript" charset="utf-8"></script>
 </body>
 </html>

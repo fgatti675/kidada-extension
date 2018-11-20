@@ -1,7 +1,6 @@
 const asinText = document.getElementById('asin');
 const nameText = document.getElementById('name');
 const shortDescriptionText = document.getElementById('short_description');
-const editorsCommentText = document.getElementById('editors_comment');
 const brandText = document.getElementById('brand');
 const priceText = document.getElementById('price');
 const currencySelect = document.getElementById('currency');
@@ -15,6 +14,8 @@ const loginGoogle = document.getElementById('loginGoogle');
 const submitButton = document.getElementById('submit-button');
 const loginFacebook = document.getElementById('loginFacebook');
 const loginForm = document.getElementById('loginform');
+
+let textareaEditor;
 
 let invalidUrl = false;
 const countryInfo = {
@@ -146,7 +147,7 @@ function requestSource() {
     }, function () {
         // If you try and inject into an extensions page or the webstore/NTP you'll get an error
         if (chrome.runtime.lastError) {
-            message.innerText = 'There was an error injecting script : \n' + chrome.runtime.lastError.message;
+            message.innerText = 'There was an error injecting script : \n' + chrome.runtime.lasterror;
         }
     });
 
@@ -227,7 +228,6 @@ function bindForm() {
 
     nameText.value = ProductObject.name;
     shortDescriptionText.value = ProductObject.short_description;
-    editorsCommentText.value = ProductObject.editors_comment;
     brandText.value = ProductObject.brand;
     priceText.value = ProductObject.price;
 
@@ -239,6 +239,8 @@ function bindForm() {
         this.checked = selectedAmazonImageUrls.includes(this.src);
     });
 
+    if (ProductObject.editors_comment)
+        textareaEditor.content.set(ProductObject.editors_comment);
 }
 
 async function bindExistingProduct(snapshot) {
@@ -293,9 +295,6 @@ function addFormListeners() {
     shortDescriptionText.onkeyup = function () {
         ProductObject.short_description = this.value;
     };
-    editorsCommentText.onkeyup = function () {
-        ProductObject.editors_comment = this.value;
-    };
     brandText.onkeyup = function () {
         ProductObject.brand = this.value;
     };
@@ -319,12 +318,13 @@ function addFormListeners() {
 
     const form = document.getElementById('main-form');
     form.addEventListener('submit', function (event) {
+        console.log(ProductObject);
         customValidation();
         event.preventDefault();
+        event.stopPropagation();
         form.classList.add('was-validated');
         if (form.checkValidity() === false) {
             console.log('Not validated');
-            event.stopPropagation();
             return;
         }
         console.log('Validated');
@@ -362,7 +362,25 @@ function customValidation() {
 
 function onWindowLoad() {
 
-    const message = document.querySelector('#message');
+    const config = {
+        ui: {
+            toolbar: {
+                items: [
+                    {
+                        label: 'Undo and Redo group',
+                        items: ['undo', 'redo', "bold", "italic", 'link',]
+                    },
+                    'style',
+                    {
+                        label: 'Custom Toolbar Group',
+                        items: ['removeformat', 'fullscreen']
+                    }
+                ]
+            }
+        }
+    };
+
+    textareaEditor = textboxio.replace('#editors_comment', config);
 
     $(loginForm).submit(function (event) {
         const username = $(this).find('#username').val();
@@ -370,7 +388,7 @@ function onWindowLoad() {
         event.preventDefault();
         firebase.auth().signInWithEmailAndPassword(username, password).then(function (user) {
             console.log('User connected', user);
-        }).catch(error => showError(error.message));
+        }).catch(error => showError(error));
     });
 
     firebase.auth().onAuthStateChanged(function (user) {
@@ -381,6 +399,7 @@ function onWindowLoad() {
             $('#main').addClass("d-none");
             $('#login').removeClass("d-none");
         }
+        console.log("user loaded " + user);
         $('#loader').addClass("d-none");
         if (invalidUrl)
             setWrongPageMode();
@@ -390,7 +409,7 @@ function onWindowLoad() {
         firebase.auth().signOut()
             .then(function () {
                 // Sign-out successful.
-            }).catch(error => showError(error.message));
+            }).catch(error => showError(error));
     });
 
     loginGoogle.addEventListener("click", function () {
@@ -402,13 +421,16 @@ function onWindowLoad() {
             const user = result.user;
             console.log(user);
             // ...
-        }).catch(error => showError(error.message));
+        }).catch(error => showError(error));
     });
 
+    $("#image_container").sortable();
 }
 
 
 function saveProduct() {
+
+    ProductObject.editors_comment = textareaEditor.content.get();
 
     console.log("saving");
     console.log(ProductObject);
@@ -424,11 +446,11 @@ function saveProduct() {
     if (!existingProduct) {
         ProductObject["liked_by_count"] = 0;
         doc.set(ProductObject)
-            .then(onProductSaved).catch(error => showError(error.message));
+            .then(onProductSaved).catch(error => showError(error));
     }
     else {
         doc.update(ProductObject)
-            .then(onProductSaved).catch(error => showError(error.message));
+            .then(onProductSaved).catch(error => showError(error));
     }
 }
 
@@ -448,8 +470,7 @@ function uploadImagesAndSave() {
             console.log(values);
             ProductObject.images = values;
             saveProduct();
-        })
-        .catch((error) => showError(error));
+        });
 }
 
 // Download a file form a url and upload to storage
@@ -513,7 +534,7 @@ function uploadImage(url, index) {
                                 url: url
                             })
                         }).catch(error => {
-                            showError(error.message);
+                            showError(error);
                             reject("Failed image upload: " + url);
                         });
                     });
@@ -529,11 +550,12 @@ function uploadImage(url, index) {
 
 }
 
-function showError(errorMessage) {
+function showError(error) {
+    console.error(error);
     document.getElementById('loader').classList.add("d-none");
     document.getElementById('main').classList.remove("d-none");
     document.getElementById('error').classList.remove("d-none");
-    document.getElementById('errorText').innerHTML = `<p>${errorMessage}</p>`;
+    document.getElementById('errorText').innerHTML = `<p>${error.message}</p>`;
 }
 
 function b64toBlob(b64Data, contentType, sliceSize) {
