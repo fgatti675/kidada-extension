@@ -430,7 +430,12 @@ function onWindowLoad() {
 
 function saveProduct() {
 
-    ProductObject.editors_comment = textareaEditor.content.get();
+    ProductObject.editors_comment = textareaEditor.content.get()
+        .replace("<p><br /></p>", "")
+        .replace("<p></p>", "")
+        .replace("<br />", "")
+        .replace("&nbsp;", "");
+    if (ProductObject.editors_comment.length === 0) ProductObject.editors_comment = null;
 
     console.log("saving");
     console.log(ProductObject);
