@@ -15,6 +15,9 @@ const submitButton = document.getElementById('submit-button');
 const loginFacebook = document.getElementById('loginFacebook');
 const loginForm = document.getElementById('loginform');
 
+const manifestData = chrome.runtime.getManifest();
+console.log(manifestData.version);
+
 let textareaEditor;
 
 let invalidUrl = false;
@@ -47,6 +50,7 @@ const countryInfo = {
 };
 
 let productAsin = null;
+let storageKey = null;
 let locale = null;
 
 const categories = null;
@@ -71,12 +75,10 @@ db.settings({
 const storageRef = firebase.storage().ref();
 
 let ProductObject = {
-    added_on: firebase.firestore.FieldValue.serverTimestamp(),
     added_by: null,
     amazon_link: null,
     brand: null,
     images: [],
-    last_featured: null,
     category: null,
     name: null,
     short_description: null,
@@ -136,6 +138,8 @@ chrome.tabs.query({active: true, currentWindow: true}, function (tabs) {
             invalidUrl = true;
         }
 
+        storageKey = 'ProductObject.' + manifestData.version + "." + productAsin;
+
         requestSource();
     }
 });
@@ -153,31 +157,55 @@ function requestSource() {
 
     chrome.runtime.onMessage.addListener(function (request, sender) {
 
-        if (request.action === "getSource") {
+            if (request.action === "getSource") {
 
-            const page = $.parseHTML(request.source);
+                const page = $.parseHTML(request.source);
 
-            firebase.firestore().collection('sites').doc(locale).collection('products')
-                .doc(productAsin)
-                .get()
-                .then(async snapshot => {
-                    if (snapshot.exists) {
-                        existingProduct = true;
-                        document.getElementById('already_there').classList.remove("d-none");
-                        submitButton.innerText = "Update product";
-                        await bindExistingProduct(snapshot);
-                    } else {
-                        parseSourcePage(page);
-                    }
-                    bindForm();
-                }).catch((reason) => showError(reason));
+                let storageProduct;
+                try {
+                    storageProduct = localStorage.getItem(storageKey) ? JSON.parse(localStorage.getItem(storageKey)) : null;
+                } catch (e) {
+                    storageProduct = null;
+                }
 
-            loadImages(page);
-            loadCategories();
+                firebase.firestore().collection('sites').doc(locale).collection('products')
+                    .doc(productAsin)
+                    .get()
+                    .then(async snapshot => {
+                        let parsedProductObject = parseSourcePage(page);
+                        if (snapshot.exists) {
+                            existingProduct = true;
+                            document.getElementById('already_there').classList.remove("d-none");
+                            submitButton.innerText = "Update product";
+                            if (storageProduct) {
+                                ProductObject = storageProduct;
+                            } else {
+                                await bindExistingProduct(snapshot);
+                            }
+                            await bindSavedProductImages(snapshot);
+                        } else {
+                            if (storageProduct) {
+                                ProductObject = storageProduct;
+                            } else {
+                                ProductObject = parsedProductObject;
+                            }
+                        }
+                        if(ProductObject.price !== parsedProductObject.price){
+                            document.getElementById('outdated_price').classList.remove("d-none");
+                            document.getElementById('outdated_price').innerText = "Current outdated price in Dadaki: " + ProductObject.price;
+                            ProductObject.price = parsedProductObject.price;
+                        }
+                        bindForm();
+                        addFormListeners();
+                    }).catch((reason) => showError(reason));
 
-            addFormListeners();
+                loadImages(page);
+                loadCategories();
+
+            }
         }
-    });
+    )
+    ;
 }
 
 
@@ -230,6 +258,7 @@ function bindForm() {
     shortDescriptionText.value = ProductObject.short_description;
     brandText.value = ProductObject.brand;
     priceText.value = ProductObject.price;
+    feedExcluded.value = ProductObject.feed_excluded;
 
     currencySelect.value = ProductObject.currency;
     amazonLink.value = ProductObject.amazon_link;
@@ -243,12 +272,22 @@ function bindForm() {
         textareaEditor.content.set(ProductObject.editors_comment);
 }
 
-async function bindExistingProduct(snapshot) {
+async function bindSavedProductImages(snapshot) {
     let snapshotImages = snapshot.get('images');
+    for (let i = 0; i < snapshotImages.length; i++) {
+        const imageRef = storageRef.child(snapshotImages[i].key);
+        const metadata = await imageRef.getMetadata();
+        if (metadata.customMetadata && metadata.customMetadata.originalURL)
+            selectedAmazonImageUrls.push(metadata.customMetadata.originalURL);
+    }
+    return snapshotImages;
+}
+
+async function bindExistingProduct(snapshot) {
     ProductObject = {
         "asin": snapshot.id,
         "amazon_link": snapshot.get('amazon_link'),
-        "images": snapshotImages,
+        "images": snapshot.get('images'),
         "brand": snapshot.get('brand'),
         "name": snapshot.get('name'),
         "currency": snapshot.get('currency'),
@@ -258,25 +297,29 @@ async function bindExistingProduct(snapshot) {
         "category": snapshot.get('category'),
         "feed_excluded": snapshot.get('feed_excluded'),
         "added_on": snapshot.get('added_on'),
-        "last_featured": snapshot.get('last_featured'),
         "liked_by_count": snapshot.get('liked_by_count'),
     };
-
-    for (let i = 0; i < snapshotImages.length; i++) {
-        const imageRef = storageRef.child(snapshotImages[i].key);
-        const metadata = await imageRef.getMetadata();
-        if (metadata.customMetadata && metadata.customMetadata.originalURL)
-            selectedAmazonImageUrls.push(metadata.customMetadata.originalURL);
-    }
 }
 
 function loadImages(page) {
+    let imagesCount = 0;
     $(page).find(".image.item img").each(function (index) {
         $(imageContainer).append("<div class='m-1 d-inline-block'>" +
             "<input class='image_checkbox m-1' type='checkbox' src='" + this.src + "'>" +
             "<img class='image' src='" + this.src + "' style='width:100px; height:auto;'/>" +
             "</div>");
+        imagesCount++;
     });
+
+    if (imagesCount === 0) {
+        $(page).find(".img-wrapper img").each(function (index) {
+            $(imageContainer).append("<div class='m-1 d-inline-block'>" +
+                "<input class='image_checkbox m-1' type='checkbox' src='" + this.src + "'>" +
+                "<img class='image' src='" + this.src + "' style='width:100px; height:auto;'/>" +
+                "</div>");
+            imagesCount++;
+        });
+    }
 
     $(imageContainer).find("input").change(function () {
         if (this.checked) {
@@ -291,30 +334,38 @@ function loadImages(page) {
 function addFormListeners() {
     nameText.onkeyup = function () {
         ProductObject.name = this.value;
+        saveToLocalStorage();
     };
     shortDescriptionText.onkeyup = function () {
         ProductObject.short_description = this.value;
+        saveToLocalStorage();
     };
     brandText.onkeyup = function () {
         ProductObject.brand = this.value;
+        saveToLocalStorage();
     };
     priceText.onkeyup = function () {
         ProductObject.price = parseFloat(this.value);
+        saveToLocalStorage();
     };
     currencySelect.onchange = function () {
         ProductObject.currency = this.value;
-    };
-    asinText.onkeyup = function () {
-        productAsin = this.value;
-        ProductObject.amazon_link = countryInfo[locale].amazon_link + "/gp/product/" + productAsin;
-        amazonLink.value = ProductObject.amazon_link;
-    };
-    amazonLink.onkeyup = function () {
-        ProductObject.amazon_link = this.value;
+        saveToLocalStorage();
     };
     feedExcluded.onchange = function () {
         ProductObject.feed_excluded = this.checked;
+        saveToLocalStorage();
     };
+
+    textareaEditor.events.change.addListener(function () {
+        ProductObject.editors_comment = textareaEditor.content.get()
+            .replace("<p><br /></p>", "")
+            .replace("<p></p>", "")
+            .replace("<br />", "")
+            .replace("&nbsp;", "");
+        if (ProductObject.editors_comment.length === 0) ProductObject.editors_comment = null;
+        saveToLocalStorage();
+    });
 
     const form = document.getElementById('main-form');
     form.addEventListener('submit', function (event) {
@@ -327,7 +378,6 @@ function addFormListeners() {
             console.log('Not validated');
             return;
         }
-        console.log('Validated');
         document.getElementById('main').classList.add("d-none");
         document.getElementById('loader').classList.remove("d-none");
         uploadImagesAndSave();
@@ -399,7 +449,6 @@ function onWindowLoad() {
             $('#main').addClass("d-none");
             $('#login').removeClass("d-none");
         }
-        console.log("user loaded " + user);
         $('#loader').addClass("d-none");
         if (invalidUrl)
             setWrongPageMode();
@@ -419,7 +468,6 @@ function onWindowLoad() {
             const token = result.credential.accessToken;
             // The signed-in user info.
             const user = result.user;
-            console.log(user);
             // ...
         }).catch(error => showError(error));
     });
@@ -430,18 +478,12 @@ function onWindowLoad() {
 
 function saveProduct() {
 
-    ProductObject.editors_comment = textareaEditor.content.get()
-        .replace("<p><br /></p>", "")
-        .replace("<p></p>", "")
-        .replace("<br />", "")
-        .replace("&nbsp;", "");
-    if (ProductObject.editors_comment.length === 0) ProductObject.editors_comment = null;
-
     console.log("saving");
     console.log(ProductObject);
 
     let onProductSaved = function () {
         console.log("Product Uploaded");
+        localStorage.setItem(storageKey, null);
         document.getElementById('loader').classList.add("d-none");
         document.getElementById('result').classList.remove("d-none");
         document.getElementById('result-text').innerHTML = '<strong>Product Uploaded &#x1F64C\t</strong>';
@@ -450,6 +492,7 @@ function saveProduct() {
     let doc = db.collection("sites").doc(locale).collection("products").doc(productAsin);
     if (!existingProduct) {
         ProductObject["liked_by_count"] = 0;
+        ProductObject["added_on"] = firebase.firestore.FieldValue.serverTimestamp();
         doc.set(ProductObject)
             .then(onProductSaved).catch(error => showError(error));
     }
@@ -597,7 +640,26 @@ function sanitize(s) {
 }
 
 
+function saveToLocalStorage() {
+    console.log("saving lo localStorage");
+    localStorage.setItem(storageKey, JSON.stringify(ProductObject));
+}
+
 function parseSourcePage(page) {
+
+    let product = {
+        added_by: null,
+        amazon_link: null,
+        brand: null,
+        images: [],
+        category: null,
+        name: null,
+        short_description: null,
+        editors_comment: null,
+        feed_excluded: false,
+        price: null,
+        currency: null
+    };
 
     function getBrand(page) {
         let author = $.trim($(page).find('.authorNameLink').text());
@@ -609,9 +671,13 @@ function parseSourcePage(page) {
 
     function getPrice(page) {
         let price = $.trim($(page).find('#priceblock_ourprice').text());
-
+        console.log(price);
         if (!price) {
             price = $.trim($(page).find('.a-size-base .a-color-price .priceblock_vat_inc_price').text());
+        }
+
+        if (!price) {
+            price = $.trim($(page).find('.priceblock_vat_inc_price').text());
         }
 
         if (!price) {
@@ -621,25 +687,20 @@ function parseSourcePage(page) {
         if (!price) {
             price = $.trim($(page).find('.a-color-price').text());
         }
+        console.log(price);
         let cleanedPrice = cleanPrice(price);
         return parseFloat(cleanedPrice);
     }
 
     function cleanPrice(string) {
-        // EUR
-        string = string.replace("EUR ", "");
-        // $
-        string = string.replace("$", "");
-        // £
-        string = string.replace("£", "");
-
-        string = string.replace(",", ".");
-        return string;
+        const priceregEx = /([0-9,.]+)/g;
+        let matches = priceregEx.exec(string);
+        return matches[1].replace(",", ".");
     }
 
 
     let brand = getBrand(page);
-    ProductObject.brand = brand;
+    product.brand = brand;
 
     let brandRegEx = brand.length > 3
         ? brand
@@ -652,7 +713,6 @@ function parseSourcePage(page) {
             .replace(/[uûüùúū]/g, '[uûüùúū]')
         : brand;
 
-    console.log(brandRegEx);
     const nameRegEx = new RegExp(
         brandRegEx,
         "ig");
@@ -673,36 +733,41 @@ function parseSourcePage(page) {
                                     name.indexOf(": ") > -1 ? name.indexOf(": ") :
                                         name.indexOf(", ");
     if (separatorIndex > -1) {
-        ProductObject.name = sanitize(name.substring(0, separatorIndex).trim());
-        ProductObject.short_description = sanitize(name.substring(separatorIndex + 1, name.length).trim());
+        product.name = sanitize(name.substring(0, separatorIndex).trim());
+        product.short_description = sanitize(name.substring(separatorIndex + 1, name.length).trim());
     } else {
         // check if there is a long string between parenthesis
         let regExp = /(\([^)]+\))$/;
         let matches = regExp.exec(name);
         if (matches) {
             let description = matches[1]; // description with parenthesis
-            ProductObject.name = sanitize(name.replace(description, "").trim());
-            ProductObject.short_description = sanitize(description.substring(1, description.length - 1));
+            product.name = sanitize(name.replace(description, "").trim());
+            product.short_description = sanitize(description.substring(1, description.length - 1));
         } else {
-            ProductObject.name = sanitize(name);
+            product.name = sanitize(name);
         }
     }
 
-    if (ProductObject.name)
-        ProductObject.name = sentenceCase(ProductObject.name);
+    if (product.name)
+        product.name = sentenceCase(product.name);
 
-    if (ProductObject.short_description) {
-        ProductObject.short_description = ProductObject.short_description.replace(";", ".");
-        ProductObject.short_description = sentenceCase(ProductObject.short_description.replace(";", "."));
+    if (product.short_description) {
+        product.short_description = product.short_description.replace(";", ".");
+        product.short_description = sentenceCase(product.short_description.replace(";", "."));
     }
 
-    ProductObject.price = getPrice(page);
+    product.price = getPrice(page);
 
-    selectedAmazonImageUrls.push($(page).find(".image.item img").first()[0].src);
+    try {
+        selectedAmazonImageUrls.push($(page).find(".image.item img").first()[0].src);
+    } catch (e) {
+        selectedAmazonImageUrls.push($(page).find(".img-wrapper img").first()[0].src);
+    }
 
-    ProductObject.amazon_link = countryInfo[locale].amazon_link + "/gp/product/" + productAsin;
-    ProductObject.currency = countryInfo[locale].currency;
+    product.amazon_link = countryInfo[locale].amazon_link + "/gp/product/" + productAsin;
+    product.currency = countryInfo[locale].currency;
 
+    return product;
 }
 
 window.onload = onWindowLoad;

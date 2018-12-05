@@ -133,6 +133,13 @@
 
                 <div class="form-row">
                     <div class="col-4">
+
+                        <div data-toggle="tooltip" class="custom-control"
+                             title="Tick this if you don't want the product featured in the main page. For example if it's a product for an article only">
+                            <input type="checkbox" name="code" id="feed_excluded"/>
+                            <label for="feed_excluded">Excluded from feed</label>
+                        </div>
+
                         <div class="form-group">
                             <label>Price</label>
                             <div class="input-group mb-3">
@@ -145,13 +152,9 @@
                                     </select>
                                 </div>
                             </div>
+                            <div id="outdated_price" class="alert alert-warning d-none"></div>
                         </div>
 
-                        <div data-toggle="tooltip" class="custom-control"
-                             title="Tick this if you don't want the product featured in the main page. For example if it's a product for an article only">
-                            <input type="checkbox" name="code" id="feed_excluded"/>
-                            <label for="feed_excluded">Excluded from feed</label>
-                        </div>
                     </div>
                     <div class="col-8">
                         <p>Image</p><br/>

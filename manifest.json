@@ -1,17 +1,27 @@
 {
   "name": "Dadaki Product Picker",
-  "version": "0.14",
+  "version": "0.15",
   "description": "Select Amazon products and add it to the Dadaki backend",
-  "permissions": ["activeTab", "storage", "identity", "https://www.amazon.es/"],
+  "permissions": [
+    "activeTab",
+    "storage",
+    "identity",
+    "storage",
+    "https://www.amazon.es/"
+  ],
   "content_security_policy": "script-src 'self' unsafe-inline 'sha256-XGaHtqs30wpY3Jhrq+qjR+AvYh8tCCrP5crpfbfh/v4=' https://cdn.firebase.com https://www.gstatic.com https://*.firebaseio.com https://apis.google.com; object-src 'self'",
   "content_scripts": [
     {
-      "matches": ["http://*/*","https://*/*"],
-      "js": ["jquery.js"]
+      "matches": [
+        "http://*/*",
+        "https://*/*"
+      ],
+      "js": [
+        "jquery.js"
+      ]
     }
   ],
   "options_page": "options.html",
-
   "browser_action": {
     "default_title": "Dadaki product picker",
     "default_icon": {
