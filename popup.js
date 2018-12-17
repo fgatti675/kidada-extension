@@ -173,6 +173,7 @@ function requestSource() {
                     .get()
                     .then(async snapshot => {
                         let parsedProductObject = parseSourcePage(page);
+                        setDescriptionSuggestions(page);
                         if (snapshot.exists) {
                             existingProduct = true;
                             document.getElementById('already_there').classList.remove("d-none");
@@ -190,14 +191,17 @@ function requestSource() {
                                 ProductObject = parsedProductObject;
                             }
                         }
-                        if(ProductObject.price !== parsedProductObject.price){
+                        if (ProductObject.price !== parsedProductObject.price) {
                             document.getElementById('outdated_price').classList.remove("d-none");
                             document.getElementById('outdated_price').innerText = "Current outdated price in Dadaki: " + ProductObject.price;
                             ProductObject.price = parsedProductObject.price;
                         }
                         bindForm();
                         addFormListeners();
-                    }).catch((reason) => showError(reason));
+                    }).catch((error) => {
+                    console.error(error);
+                    showError(error);
+                });
 
                 loadImages(page);
                 loadCategories();
@@ -246,9 +250,11 @@ function loadCategories() {
             $(categoriesGroup).find("input").change(function () {
                 ProductObject.category = this.value;
             });
-        }).catch((reason) => showError(reason));
+        }).catch((error) => {
+        console.error(error);
+        showError(error);
+    });
 }
-
 
 function bindForm() {
 
@@ -274,6 +280,8 @@ function bindForm() {
 
 async function bindSavedProductImages(snapshot) {
     let snapshotImages = snapshot.get('images');
+    console.log("si", snapshotImages);
+    selectedAmazonImageUrls = [];
     for (let i = 0; i < snapshotImages.length; i++) {
         const imageRef = storageRef.child(snapshotImages[i].key);
         const metadata = await imageRef.getMetadata();
@@ -312,7 +320,7 @@ function loadImages(page) {
     });
 
     if (imagesCount === 0) {
-        $(page).find(".img-wrapper img").each(function (index) {
+        $(page).find("#img-wrapper img").each(function (index) {
             $(imageContainer).append("<div class='m-1 d-inline-block'>" +
                 "<input class='image_checkbox m-1' type='checkbox' src='" + this.src + "'>" +
                 "<img class='image' src='" + this.src + "' style='width:100px; height:auto;'/>" +
@@ -322,12 +330,18 @@ function loadImages(page) {
     }
 
     $(imageContainer).find("input").change(function () {
+        updateSelectedImagesFromInput();
+    });
+}
+
+function updateSelectedImagesFromInput() {
+    selectedAmazonImageUrls = [];
+    $(imageContainer).find('input').each(function (index) {
         if (this.checked) {
             selectedAmazonImageUrls.push(this.src);
-        } else {
-            selectedAmazonImageUrls.remove(this.src);
         }
     });
+    console.log(selectedAmazonImageUrls);
 }
 
 
@@ -472,7 +486,9 @@ function onWindowLoad() {
         }).catch(error => showError(error));
     });
 
-    $("#image_container").sortable();
+    $("#image_container").sortable({
+        activate: updateSelectedImagesFromInput
+    });
 }
 
 
@@ -556,23 +572,29 @@ function uploadImage(url, index) {
                     else
                         ProductObject.added_by = firebase.auth().currentUser.uid;
 
-                    const metadata = {
-                        contentType: 'image/jpeg',
-                        customMetadata: {
-                            'originalURL': url
-                        }
-                    };
-
                     const file = e.target.result;
                     const base64result = reader.result.split(',')[1];
                     const blob = b64toBlob(base64result);
-                    const fileName = 'products/' + productAsin + '-' + index + '.jpg';
+                    const fileName = `products/${locale}/${productAsin}-${index}.jpg`;
+
+                    const metadata = {
+                        contentType: 'image/jpeg',
+                        customMetadata: {
+                            'locale': locale,
+                            'productAsin': productAsin,
+                            'imageKey': fileName,
+                            'originalURL': url,
+                            'firestoreDocReference': `sites/${locale}/products/${productAsin}`,
+                            'firestoreArrayField': `images`
+                        }
+                    };
+
                     const uploadTask = storageRef.child(fileName).put(blob, metadata);
 
                     uploadTask.on('state_changed', null, function (error) {
                         showError(error);
                         reject("Failed image upload: " + url);
-                    }, function () {
+                    }, function (res) {
                         console.log('Uploaded', uploadTask.snapshot.totalBytes, 'bytes.');
                         const imageRef = storageRef.child(fileName);
                         imageRef.getDownloadURL().then(function (url) {
@@ -599,7 +621,6 @@ function uploadImage(url, index) {
 }
 
 function showError(error) {
-    console.error(error);
     document.getElementById('loader').classList.add("d-none");
     document.getElementById('main').classList.remove("d-none");
     document.getElementById('error').classList.remove("d-none");
@@ -636,7 +657,13 @@ function sentenceCase(input) {
 
 function sanitize(s) {
     const regex = /[\s\t\n\r]+/g;
-    return s.replace(regex, " ").trim();
+    return s.replace(regex, " ")
+        .replace(" , ", " - ")
+        .replace(", ", " - ")
+        .replace("; ", " - ")
+        .replace(" / ", " - ")
+        .replace(". ", " - ")
+        .trim();
 }
 
 
@@ -671,23 +698,18 @@ function parseSourcePage(page) {
 
     function getPrice(page) {
         let price = $.trim($(page).find('#priceblock_ourprice').text());
-        console.log(price);
         if (!price) {
             price = $.trim($(page).find('.a-size-base .a-color-price .priceblock_vat_inc_price').text());
         }
-
         if (!price) {
             price = $.trim($(page).find('.priceblock_vat_inc_price').text());
         }
-
         if (!price) {
             price = $.trim($(page).find('#buyNewSection .a-color-price').text());
         }
-
         if (!price) {
             price = $.trim($(page).find('.a-color-price').text());
         }
-        console.log(price);
         let cleanedPrice = cleanPrice(price);
         return parseFloat(cleanedPrice);
     }
@@ -761,13 +783,37 @@ function parseSourcePage(page) {
     try {
         selectedAmazonImageUrls.push($(page).find(".image.item img").first()[0].src);
     } catch (e) {
-        selectedAmazonImageUrls.push($(page).find(".img-wrapper img").first()[0].src);
+        selectedAmazonImageUrls.push($(page).find("#img-wrapper img").first()[0].src);
     }
 
     product.amazon_link = countryInfo[locale].amazon_link + "/gp/product/" + productAsin;
     product.currency = countryInfo[locale].currency;
 
     return product;
+}
+
+
+function setDescriptionSuggestions(page) {
+    $(page).find('#featurebullets_feature_div .a-list-item')
+        .each(function (index) {
+            let suggestion = sanitize(this.innerText.trim());
+            if (suggestion.length < 80)
+                $("#description_suggestions").append(
+                    `<div class="suggestion" style="padding-left: 40px;" data-suggestion="${suggestion}">
+                        <h6 class="d-inline">+</h6> 
+                        <a class="small">${suggestion}</a>
+                    </div>`
+                );
+        });
+
+    $(".suggestion").click(function () {
+        if (shortDescriptionText.value.length > 0)
+            shortDescriptionText.value = shortDescriptionText.value + " - " + this.getAttribute("data-suggestion");
+        else
+            shortDescriptionText.value = this.getAttribute("data-suggestion");
+        ProductObject.short_description = shortDescriptionText.value;
+        saveToLocalStorage();
+    });
 }
 
 window.onload = onWindowLoad;
