@@ -24,33 +24,29 @@ let invalidUrl = false;
 const countryInfo = {
     "es_ES": {
         "currency": "EUR",
-        "amazon_link": "https://www.amazon.es",
         "name": "Spain"
     },
     "it_IT": {
         "currency": "EUR",
-        "amazon_link": "https://www.amazon.it",
         "name": "Italy"
     },
     "en_US": {
         "currency": "USD",
-        "amazon_link": "https://www.amazon.com",
         "name": "United States"
     },
     "de_DE": {
         "currency": "EUR",
-        "amazon_link": "https://www.amazon.de",
         "name": "Germany"
     },
     "en_GB": {
         "currency": "GBP",
-        "amazon_link": "https://www.amazon.co.uk",
         "name": "Great Britain"
     }
 };
 
 let productAsin = null;
 let storageKey = null;
+let storageKeyReview = null;
 let locale = null;
 
 const categories = null;
@@ -75,26 +71,41 @@ db.settings({
 const storageRef = firebase.storage().ref();
 
 let ProductObject = {
+    available: true,
     added_by: null,
-    amazon_link: null,
     brand: null,
     images: [],
     category: null,
     name: null,
     short_description: null,
-    editors_comment: null,
     feed_excluded: false,
     price: null,
     currency: null
 };
 
+let ProductReviewObject = {
+    editors_comment: null,
+};
+
 let existingProduct = false;
+let alreadyUploadedImages = new Map();
 
 function setWrongPageMode() {
     $('#main').addClass("d-none");
     $('#login').addClass("d-none");
     $('#loader').addClass("d-none");
     $('#wrong_site').removeClass("d-none");
+}
+
+function hashString(s) {
+    let hash = 0, i, chr;
+    if (s.length === 0) return hash;
+    for (i = 0; i < s.length; i++) {
+        chr = s.charCodeAt(i);
+        hash = ((hash << 5) - hash) + chr;
+        hash |= 0; // Convert to 32bit integer
+    }
+    return hash;
 }
 
 let scriptInjected = false;
@@ -139,6 +150,7 @@ chrome.tabs.query({active: true, currentWindow: true}, function (tabs) {
         }
 
         storageKey = 'ProductObject.' + manifestData.version + "." + productAsin;
+        storageKeyReview = 'ProductObjectReview.' + manifestData.version + "." + productAsin;
 
         requestSource();
     }
@@ -162,10 +174,13 @@ function requestSource() {
                 const page = $.parseHTML(request.source);
 
                 let storageProduct;
+                let storageProductReview;
                 try {
                     storageProduct = localStorage.getItem(storageKey) ? JSON.parse(localStorage.getItem(storageKey)) : null;
+                    storageProductReview = localStorage.getItem(storageKeyReview) ? JSON.parse(localStorage.getItem(storageKeyReview)) : null;
                 } catch (e) {
                     storageProduct = null;
+                    storageProductReview = null;
                 }
 
                 firebase.firestore().collection('sites').doc(locale).collection('products')
@@ -181,7 +196,15 @@ function requestSource() {
                             if (storageProduct) {
                                 ProductObject = storageProduct;
                             } else {
-                                await bindExistingProduct(snapshot);
+                                bindExistingProduct(snapshot);
+                            }
+                            if (storageProductReview) {
+                                ProductReviewObject = storageProductReview;
+                            } else {
+                                const reviewSnapshot = firebase.firestore().collection('sites').doc(locale).collection("products_reviews").doc(productAsin)
+                                    .get();
+                                if (reviewSnapshot.exists)
+                                    bindExistingProductReview(reviewSnapshot);
                             }
                             await bindSavedProductImages(snapshot);
                         } else {
@@ -189,6 +212,9 @@ function requestSource() {
                                 ProductObject = storageProduct;
                             } else {
                                 ProductObject = parsedProductObject;
+                            }
+                            if (storageProductReview) {
+                                ProductReviewObject = storageProductReview;
                             }
                         }
                         if (ProductObject.price !== parsedProductObject.price) {
@@ -267,15 +293,14 @@ function bindForm() {
     feedExcluded.value = ProductObject.feed_excluded;
 
     currencySelect.value = ProductObject.currency;
-    amazonLink.value = ProductObject.amazon_link;
     amazonCountry.innerText = countryInfo[locale].name;
 
     $('.image_checkbox').each(function (index) {
         this.checked = selectedAmazonImageUrls.includes(this.src);
     });
 
-    if (ProductObject.editors_comment)
-        textareaEditor.content.set(ProductObject.editors_comment);
+    if (ProductReviewObject.editors_comment)
+        textareaEditor.content.set(ProductReviewObject.editors_comment);
 }
 
 async function bindSavedProductImages(snapshot) {
@@ -285,27 +310,34 @@ async function bindSavedProductImages(snapshot) {
     for (let i = 0; i < snapshotImages.length; i++) {
         const imageRef = storageRef.child(snapshotImages[i].key);
         const metadata = await imageRef.getMetadata();
-        if (metadata.customMetadata && metadata.customMetadata.originalURL)
+        if (metadata.customMetadata && metadata.customMetadata.originalURL) {
             selectedAmazonImageUrls.push(metadata.customMetadata.originalURL);
+            alreadyUploadedImages.set(metadata.customMetadata.originalURL, snapshotImages[i]);
+        }
     }
-    return snapshotImages;
+
+    return selectedAmazonImageUrls;
 }
 
-async function bindExistingProduct(snapshot) {
+function bindExistingProduct(snapshot) {
     ProductObject = {
-        "asin": snapshot.id,
-        "amazon_link": snapshot.get('amazon_link'),
+        "available": snapshot.get('available'),
         "images": snapshot.get('images'),
         "brand": snapshot.get('brand'),
         "name": snapshot.get('name'),
         "currency": snapshot.get('currency'),
         "price": snapshot.get('price'),
         "short_description": snapshot.get('short_description'),
-        "editors_comment": snapshot.get('editors_comment'),
+        "has_review": snapshot.get('has_review'),
         "category": snapshot.get('category'),
         "feed_excluded": snapshot.get('feed_excluded'),
-        "added_on": snapshot.get('added_on'),
         "liked_by_count": snapshot.get('liked_by_count'),
+    };
+}
+
+function bindExistingProductReview(snapshot) {
+    ProductObject = {
+        "editors_comment": snapshot.get('editors_comment'),
     };
 }
 
@@ -372,12 +404,12 @@ function addFormListeners() {
     };
 
     textareaEditor.events.change.addListener(function () {
-        ProductObject.editors_comment = textareaEditor.content.get()
+        ProductReviewObject.editors_comment = textareaEditor.content.get()
             .replace("<p><br /></p>", "")
             .replace("<p></p>", "")
             .replace("<br />", "")
             .replace("&nbsp;", "");
-        if (ProductObject.editors_comment.length === 0) ProductObject.editors_comment = null;
+        if (ProductReviewObject.editors_comment.length === 0) ProductReviewObject.editors_comment = null;
         saveToLocalStorage();
     });
 
@@ -494,28 +526,33 @@ function onWindowLoad() {
 
 function saveProduct() {
 
+    ProductObject.available = true;
+    ProductObject["liked_by_count"] = 0;
+    ProductObject["added_on"] = firebase.firestore.FieldValue.serverTimestamp();
+
     console.log("saving");
-    console.log(ProductObject);
+    console.log(ProductObject, ProductReviewObject);
 
     let onProductSaved = function () {
         console.log("Product Uploaded");
         localStorage.setItem(storageKey, null);
+        localStorage.setItem(storageKeyReview, null);
         document.getElementById('loader').classList.add("d-none");
         document.getElementById('result').classList.remove("d-none");
         document.getElementById('result-text').innerHTML = '<strong>Product Uploaded &#x1F64C\t</strong>';
     };
 
-    let doc = db.collection("sites").doc(locale).collection("products").doc(productAsin);
-    if (!existingProduct) {
-        ProductObject["liked_by_count"] = 0;
-        ProductObject["added_on"] = firebase.firestore.FieldValue.serverTimestamp();
-        doc.set(ProductObject)
-            .then(onProductSaved).catch(error => showError(error));
+    const batch = db.batch();
+
+    const doc = db.collection("sites").doc(locale).collection("products").doc(productAsin);
+    if (ProductReviewObject.editors_comment) {
+        const reviewDoc = db.collection("sites").doc(locale).collection("products_reviews").doc(productAsin);
+        ProductObject.has_review = true;
+        batch.set(reviewDoc, ProductReviewObject, {merge: true});
     }
-    else {
-        doc.update(ProductObject)
-            .then(onProductSaved).catch(error => showError(error));
-    }
+
+    batch.set(doc, ProductObject, {merge: true});
+    batch.commit().then(onProductSaved).catch(error => showError(error));
 }
 
 function uploadImagesAndSave() {
@@ -524,9 +561,14 @@ function uploadImagesAndSave() {
     let uploadPromises = [];
     for (let i = 0; i < selectedAmazonImageUrls.length; i++) {
         const url = selectedAmazonImageUrls[i];
-        uploadPromises.push(
-            uploadImage(url, i)
-        );
+        if (!alreadyUploadedImages.has(url)) {
+            uploadPromises.push(
+                uploadImage(url, i)
+            );
+        } else {
+            uploadPromises.push(Promise.resolve(alreadyUploadedImages.get(url)));
+            console.log("Image already uploaded", url);
+        }
     }
 
     Promise.all(uploadPromises)
@@ -566,26 +608,25 @@ function uploadImage(url, index) {
                 const reader = new FileReader();
                 reader.onload = function (e) {
 
-                    const auth = firebase.auth();
                     if (existingProduct)
                         ProductObject.last_updated_by = firebase.auth().currentUser.uid;
                     else
                         ProductObject.added_by = firebase.auth().currentUser.uid;
 
-                    const file = e.target.result;
+                    let hashUrl = Math.abs(hashString(url));
+
                     const base64result = reader.result.split(',')[1];
                     const blob = b64toBlob(base64result);
-                    const fileName = `products/${locale}/${productAsin}-${index}.jpg`;
+                    const fileName = `products/${locale}/${productAsin}-${hashUrl}.jpg`;
 
                     const metadata = {
                         contentType: 'image/jpeg',
+                        cacheControl: "public,max-age=31536000",
                         customMetadata: {
                             'locale': locale,
                             'productAsin': productAsin,
                             'imageKey': fileName,
                             'originalURL': url,
-                            'firestoreDocReference': `sites/${locale}/products/${productAsin}`,
-                            'firestoreArrayField': `images`
                         }
                     };
 
@@ -670,19 +711,19 @@ function sanitize(s) {
 function saveToLocalStorage() {
     console.log("saving lo localStorage");
     localStorage.setItem(storageKey, JSON.stringify(ProductObject));
+    localStorage.setItem(storageKeyReview, JSON.stringify(ProductReviewObject));
 }
 
 function parseSourcePage(page) {
 
     let product = {
+        available: true,
         added_by: null,
-        amazon_link: null,
         brand: null,
         images: [],
         category: null,
         name: null,
         short_description: null,
-        editors_comment: null,
         feed_excluded: false,
         price: null,
         currency: null
@@ -786,7 +827,6 @@ function parseSourcePage(page) {
         selectedAmazonImageUrls.push($(page).find("#img-wrapper img").first()[0].src);
     }
 
-    product.amazon_link = countryInfo[locale].amazon_link + "/gp/product/" + productAsin;
     product.currency = countryInfo[locale].currency;
 
     return product;

@@ -5,7 +5,6 @@
     <link rel="stylesheet" href="https://maxcdn.bootstrapcdn.com/bootstrap/4.0.0/css/bootstrap.min.css"
           integrity="sha384-Gn5384xqQ1aoWXA+058RXPxPg6fy4IWvTNh0E263XmFcJlSAwiGgFAW/dAiS6JXm" crossorigin="anonymous">
 
-    <script src="https://www.gstatic.com/firebasejs/5.5.3/firebase.js"></script>
 
 </head>
 <body>
@@ -22,6 +21,7 @@
     .suggestion {
         cursor: pointer;
     }
+
     @keyframes spin {
         0% {
             transform: rotate(0deg);
@@ -102,11 +102,6 @@
                         </div>
                     </div>
                     <div class="col">
-
-                        <div class="form-group">
-                            <label>Amazon Link</label>
-                            <input disabled type="text" name="amazonLink" class="form-control" id="amazonLink"/>
-                        </div>
                     </div>
                 </div>
                 <div class="form-row">
@@ -139,16 +134,11 @@
                 <div class="form-row">
                     <div class="col-4">
 
-                        <div data-toggle="tooltip" class="custom-control"
-                             title="Tick this if you don't want the product featured in the main page. For example if it's a product for an article only">
-                            <input type="checkbox" name="code" id="feed_excluded"/>
-                            <label for="feed_excluded">Excluded from feed</label>
-                        </div>
-
                         <div class="form-group">
                             <label>Price</label>
                             <div class="input-group mb-3">
-                                <input name="price" class="form-control" id="price" type="number" min="0" step="0.01" required/>
+                                <input name="price" class="form-control" id="price" type="number" min="0" step="0.01"
+                                       required/>
                                 <div class="input-group-append">
                                     <select name="currency" id="currency" required>
                                         <option value="EUR">&euro;</option>
@@ -173,9 +163,16 @@
                          id="categories">
                     </div>
                 </div>
+                <div class="row">
+                    <div data-toggle="tooltip" class="custom-control col-6"
+                         title="Tick this if you don't want the product featured in the main page. For example if it's a product for an article only">
+                        <input type="checkbox" name="code" id="feed_excluded"/>
+                        <label for="feed_excluded">Excluded from feed</label>
+                    </div>
 
-                <div class="text-right">
-                    <button class="btn btn-primary mt-2" id="submit-button" type="submit">Add to Dadaki</button>
+                    <div class="text-right col-6">
+                        <button class="btn btn-primary mt-2" id="submit-button" type="submit">Add to Dadaki</button>
+                    </div>
                 </div>
             </form>
 
@@ -196,6 +193,7 @@
     <div id="message">
     </div>
 </div>
+<script src="firebase.js"></script>
 <script src="jquery.js"></script>
 <script src="jquery-ui-1.12.1/jquery-ui.js"></script>
 <script src="popup.js" type="text/javascript" charset="utf-8"></script>
