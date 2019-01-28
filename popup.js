@@ -201,7 +201,7 @@ function requestSource() {
                             if (storageProductReview) {
                                 ProductReviewObject = storageProductReview;
                             } else {
-                                const reviewSnapshot = firebase.firestore().collection('sites').doc(locale).collection("products_reviews").doc(productAsin)
+                                const reviewSnapshot = await firebase.firestore().collection('sites').doc(locale).collection("products_reviews").doc(productAsin)
                                     .get();
                                 if (reviewSnapshot.exists)
                                     bindExistingProductReview(reviewSnapshot);
@@ -305,7 +305,6 @@ function bindForm() {
 
 async function bindSavedProductImages(snapshot) {
     let snapshotImages = snapshot.get('images');
-    console.log("si", snapshotImages);
     selectedAmazonImageUrls = [];
     for (let i = 0; i < snapshotImages.length; i++) {
         const imageRef = storageRef.child(snapshotImages[i].key);
@@ -328,7 +327,7 @@ function bindExistingProduct(snapshot) {
         "currency": snapshot.get('currency'),
         "price": snapshot.get('price'),
         "short_description": snapshot.get('short_description'),
-        "has_review": snapshot.get('has_review'),
+        "has_review": snapshot.get('has_review') || false,
         "category": snapshot.get('category'),
         "feed_excluded": snapshot.get('feed_excluded'),
         "liked_by_count": snapshot.get('liked_by_count'),
@@ -336,7 +335,7 @@ function bindExistingProduct(snapshot) {
 }
 
 function bindExistingProductReview(snapshot) {
-    ProductObject = {
+    ProductReviewObject = {
         "editors_comment": snapshot.get('editors_comment'),
     };
 }
@@ -443,11 +442,9 @@ function customValidation() {
 
     if (!ProductObject.short_description) {
         shortDescriptionText.setCustomValidity("Invalid field.");
-    }
-    else if (!ProductObject.name || ProductObject.name.length > nameText.maxLength) {
+    } else if (!ProductObject.name || ProductObject.name.length > nameText.maxLength) {
         nameText.setCustomValidity("Invalid field.");
-    }
-    else if (ProductObject.name.length > ProductObject.short_description.length) {
+    } else if (ProductObject.name.length > ProductObject.short_description.length) {
         nameText.setCustomValidity("Invalid field.");
         shortDescriptionText.setCustomValidity("Invalid field.");
     } else {
@@ -738,7 +735,11 @@ function parseSourcePage(page) {
     }
 
     function getPrice(page) {
-        let price = $.trim($(page).find('#priceblock_ourprice').text());
+        let price;
+        price = $.trim($(page).find('#olp_feature_div .a-color-price').text());
+        if (!price) {
+            price = $.trim($(page).find('#priceblock_ourprice').text());
+        }
         if (!price) {
             price = $.trim($(page).find('.a-size-base .a-color-price .priceblock_vat_inc_price').text());
         }
