@@ -6,13 +6,11 @@ const priceText = document.getElementById('price');
 const currencySelect = document.getElementById('currency');
 const imageContainer = document.getElementById('image_container');
 const feedExcluded = document.getElementById('feed_excluded');
-const amazonLink = document.getElementById('amazonLink');
 const amazonCountry = document.getElementById('amazonCountry');
 const categoriesGroup = document.getElementById('categories');
 const logoutButton = document.getElementById('logout');
 const loginGoogle = document.getElementById('loginGoogle');
 const submitButton = document.getElementById('submit-button');
-const loginFacebook = document.getElementById('loginFacebook');
 const loginForm = document.getElementById('loginform');
 
 const manifestData = chrome.runtime.getManifest();
@@ -47,6 +45,7 @@ const countryInfo = {
 let productAsin = null;
 let storageKey = null;
 let storageKeyReview = null;
+let storageKeyMeta = null;
 let locale = null;
 
 const categories = null;
@@ -78,13 +77,16 @@ let ProductObject = {
     category: null,
     name: null,
     short_description: null,
-    feed_excluded: false,
     price: null,
     currency: null
 };
 
 let ProductReviewObject = {
     editors_comment: null,
+};
+
+let ProductMetaObject = {
+    feed_excluded: false,
 };
 
 let existingProduct = false;
@@ -151,6 +153,7 @@ chrome.tabs.query({active: true, currentWindow: true}, function (tabs) {
 
         storageKey = 'ProductObject.' + manifestData.version + "." + productAsin;
         storageKeyReview = 'ProductObjectReview.' + manifestData.version + "." + productAsin;
+        storageKeyMeta = 'ProductObjectMeta.' + manifestData.version + "." + productAsin;
 
         requestSource();
     }
@@ -175,12 +178,15 @@ function requestSource() {
 
                 let storageProduct;
                 let storageProductReview;
+                let storageProductMeta;
                 try {
                     storageProduct = localStorage.getItem(storageKey) ? JSON.parse(localStorage.getItem(storageKey)) : null;
                     storageProductReview = localStorage.getItem(storageKeyReview) ? JSON.parse(localStorage.getItem(storageKeyReview)) : null;
+                    storageProductMeta = localStorage.getItem(storageKeyMeta) ? JSON.parse(localStorage.getItem(storageKeyMeta)) : null;
                 } catch (e) {
                     storageProduct = null;
                     storageProductReview = null;
+                    storageProductMeta = null;
                 }
 
                 firebase.firestore().collection('sites').doc(locale).collection('products')
@@ -198,15 +204,19 @@ function requestSource() {
                             } else {
                                 bindExistingProduct(snapshot);
                             }
+                            await bindSavedProductImages(snapshot);
                             if (storageProductReview) {
                                 ProductReviewObject = storageProductReview;
                             } else {
-                                const reviewSnapshot = await firebase.firestore().collection('sites').doc(locale).collection("products_reviews").doc(productAsin)
-                                    .get();
+                                const reviewSnapshot = await firebase.firestore().collection('sites').doc(locale).collection("products_reviews").doc(productAsin).get();
                                 if (reviewSnapshot.exists)
                                     bindExistingProductReview(reviewSnapshot);
                             }
-                            await bindSavedProductImages(snapshot);
+
+                            const metaSnapshot = await firebase.firestore().collection('sites').doc(locale).collection("products_meta").doc(productAsin).get();
+                            if (metaSnapshot.exists)
+                                bindExistingProductMeta(metaSnapshot);
+
                         } else {
                             if (storageProduct) {
                                 ProductObject = storageProduct;
@@ -215,6 +225,9 @@ function requestSource() {
                             }
                             if (storageProductReview) {
                                 ProductReviewObject = storageProductReview;
+                            }
+                            if (storageProductMeta) {
+                                ProductMetaObject = storageProductMeta;
                             }
                         }
                         if (ProductObject.price !== parsedProductObject.price) {
@@ -290,7 +303,7 @@ function bindForm() {
     shortDescriptionText.value = ProductObject.short_description;
     brandText.value = ProductObject.brand;
     priceText.value = ProductObject.price;
-    feedExcluded.value = ProductObject.feed_excluded;
+    feedExcluded.value = ProductMetaObject.feed_excluded;
 
     currencySelect.value = ProductObject.currency;
     amazonCountry.innerText = countryInfo[locale].name;
@@ -329,7 +342,6 @@ function bindExistingProduct(snapshot) {
         "short_description": snapshot.get('short_description'),
         "has_review": snapshot.get('has_review') || false,
         "category": snapshot.get('category'),
-        "feed_excluded": snapshot.get('feed_excluded'),
         "liked_by_count": snapshot.get('liked_by_count'),
     };
 }
@@ -337,6 +349,12 @@ function bindExistingProduct(snapshot) {
 function bindExistingProductReview(snapshot) {
     ProductReviewObject = {
         "editors_comment": snapshot.get('editors_comment'),
+    };
+}
+
+function bindExistingProductMeta(snapshot) {
+    ProductMetaObject = {
+        "feed_excluded": snapshot.get('feed_excluded'),
     };
 }
 
@@ -398,7 +416,7 @@ function addFormListeners() {
         saveToLocalStorage();
     };
     feedExcluded.onchange = function () {
-        ProductObject.feed_excluded = this.checked;
+        ProductMetaObject.feed_excluded = this.checked;
         saveToLocalStorage();
     };
 
@@ -528,7 +546,7 @@ function saveProduct() {
     ProductObject["added_on"] = firebase.firestore.FieldValue.serverTimestamp();
 
     console.log("saving");
-    console.log(ProductObject, ProductReviewObject);
+    console.log(ProductObject, ProductReviewObject, ProductMetaObject);
 
     let onProductSaved = function () {
         console.log("Product Uploaded");
@@ -542,13 +560,15 @@ function saveProduct() {
     const batch = db.batch();
 
     const doc = db.collection("sites").doc(locale).collection("products").doc(productAsin);
+    batch.set(doc, ProductObject, {merge: true});
+    const docMeta = db.collection("sites").doc(locale).collection("products_meta").doc(productAsin);
+    batch.set(docMeta, ProductMetaObject, {merge: true});
     if (ProductReviewObject.editors_comment) {
         const reviewDoc = db.collection("sites").doc(locale).collection("products_reviews").doc(productAsin);
         ProductObject.has_review = true;
         batch.set(reviewDoc, ProductReviewObject, {merge: true});
     }
 
-    batch.set(doc, ProductObject, {merge: true});
     batch.commit().then(onProductSaved).catch(error => showError(error));
 }
 
@@ -709,6 +729,7 @@ function saveToLocalStorage() {
     console.log("saving lo localStorage");
     localStorage.setItem(storageKey, JSON.stringify(ProductObject));
     localStorage.setItem(storageKeyReview, JSON.stringify(ProductReviewObject));
+    localStorage.setItem(storageKeyMeta, JSON.stringify(ProductMetaObject));
 }
 
 function parseSourcePage(page) {
@@ -721,7 +742,6 @@ function parseSourcePage(page) {
         category: null,
         name: null,
         short_description: null,
-        feed_excluded: false,
         price: null,
         currency: null
     };
