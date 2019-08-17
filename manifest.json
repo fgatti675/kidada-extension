@@ -1,6 +1,6 @@
 {
   "name": "Dadaki Product Picker",
-  "version": "0.20",
+  "version": "0.23",
   "description": "Select Amazon products and add it to the Dadaki backend",
   "permissions": [
     "activeTab",

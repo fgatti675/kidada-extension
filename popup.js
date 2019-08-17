@@ -78,7 +78,8 @@ let ProductObject = {
     name: null,
     short_description: null,
     price: null,
-    currency: null
+    currency: null,
+    public:true
 };
 
 let ProductReviewObject = {
@@ -343,6 +344,7 @@ function bindExistingProduct(snapshot) {
         "has_review": snapshot.get('has_review') || false,
         "category": snapshot.get('category'),
         "liked_by_count": snapshot.get('liked_by_count'),
+        "public": snapshot.get('public'),
     };
 }
 
@@ -541,9 +543,16 @@ function onWindowLoad() {
 
 function saveProduct() {
 
-    ProductObject.available = true;
-    ProductObject["liked_by_count"] = 0;
-    ProductObject["added_on"] = firebase.firestore.FieldValue.serverTimestamp();
+    if(!existingProduct){
+        ProductObject.available = true;
+        ProductObject.public = true;
+        ProductObject["liked_by_count"] = 0;
+        ProductObject["added_on"] = firebase.firestore.FieldValue.serverTimestamp();
+    }
+
+    if (ProductReviewObject.editors_comment) {
+        ProductObject.has_review = true;
+    }
 
     console.log("saving");
     console.log(ProductObject, ProductReviewObject, ProductMetaObject);
@@ -565,7 +574,6 @@ function saveProduct() {
     batch.set(docMeta, ProductMetaObject, {merge: true});
     if (ProductReviewObject.editors_comment) {
         const reviewDoc = db.collection("sites").doc(locale).collection("products_reviews").doc(productAsin);
-        ProductObject.has_review = true;
         batch.set(reviewDoc, ProductReviewObject, {merge: true});
     }
 
@@ -755,23 +763,30 @@ function parseSourcePage(page) {
     }
 
     function getPrice(page) {
-        let price;
-        price = $.trim($(page).find('#olp_feature_div .a-color-price').text());
+        let price = null;
+
         if (!price) {
-            price = $.trim($(page).find('#priceblock_ourprice').text());
+            price = $(page).find('.priceblock_vat_inc_price').text().trim();
         }
         if (!price) {
-            price = $.trim($(page).find('.a-size-base .a-color-price .priceblock_vat_inc_price').text());
+            price = $(page).find('#priceblock_ourprice').text().trim();
         }
         if (!price) {
-            price = $.trim($(page).find('.priceblock_vat_inc_price').text());
+            price = $(page).find('#olp_feature_div .a-color-price').text().trim();
         }
         if (!price) {
-            price = $.trim($(page).find('#buyNewSection .a-color-price').text());
+            price = $(page).find('.a-size-base .a-color-price .priceblock_vat_inc_price').text().trim();
         }
         if (!price) {
-            price = $.trim($(page).find('.a-color-price').text());
+            price = $(page).find('#buyNewSection .a-color-price').text().trim();
         }
+        if (!price) {
+            price = $(page).find('#newBuyBoxPrice').text().trim();
+        }
+        if (!price) {
+            price = $(page).find('#price_inside_buybox').text().trim();
+        }
+        if (!price) return null;
         let cleanedPrice = cleanPrice(price);
         return parseFloat(cleanedPrice);
     }
